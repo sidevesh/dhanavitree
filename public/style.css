@@ -3,3 +3,77 @@
 
 /* Commerce forms share the existing card and button styles. */
 #catalog-form>h3{margin:20px 0 14px}#catalog-form>label,.public-chat #purchase-form>label{margin:15px 0}.check{display:flex;align-items:center;gap:8px;line-height:1.6}.check input[type=checkbox]{width:16px;flex:0 0 16px;margin:0}.question [data-upi-report] label{margin:14px 0}.question .section-actions{margin-top:14px}.question .button:disabled,#catalog-form button:disabled{cursor:not-allowed}.public-chat>.card{margin:20px;border-radius:10px}.question p,.question strong{overflow-wrap:anywhere}
+
+/* Give card copy, form fields and actions a consistent vertical rhythm. */
+.card > p + .button,
+.card > p + .section-actions,
+.card > form,
+.card > .callout {
+  margin-top: 20px;
+}
+
+.card form > .section-actions,
+.card form > .help + .button,
+#purchase-form > .button {
+  margin-top: 18px;
+}
+
+.card > .callout + form,
+.question > form,
+.draft > .section-actions {
+  margin-top: 18px;
+}
+
+.fact > h3 + p {
+  margin-top: 8px;
+}
+
+.fact > p + small {
+  display: block;
+  margin-top: 10px;
+}
+
+.bubble,
+.fact p,
+.file-list a,
+.settings-form small {
+  overflow-wrap: anywhere;
+}
+
+.creative-image {
+  display: block;
+}
+
+.creative-grid {
+  align-items: start;
+}
+
+.creative-grid > .card {
+  margin-bottom: 0;
+}
+
+.button {
+  max-width: 100%;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+@media (max-width: 700px) {
+  .section-actions {
+    gap: 12px;
+  }
+
+  .section-actions .button,
+  .card > .button,
+  #purchase-form > .button {
+    white-space: normal;
+    text-align: center;
+    line-height: 1.5;
+  }
+
+  .public-chat > .card {
+    margin: 16px;
+  }
+}
