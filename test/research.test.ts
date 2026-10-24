@@ -5,6 +5,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
+// Background question preparation would add model calls this test counts.
+process.env.DHANAVI_AUTO_PREP='off';
 import { createWebApp } from '../src/web.ts';
 
 test('research includes scoped business context, goals and INR catalog prices without other tenants or customer records', async t => {
