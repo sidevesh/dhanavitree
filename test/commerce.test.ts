@@ -85,3 +85,33 @@ test('UPI fallback snapshots payee and requires explicit owner confirmation',asy
   await assert.rejects(()=>c.action('shop','mogra',order.id,'confirm',undefined,{received:false}),/checked your UPI/);
   await c.action('shop','mogra',order.id,'confirm',undefined,{received:true});const paid=c.publicOrders('visitor')[0];assert.equal(paid.status,'paid');assert.equal(paid.confirmationSource,'owner');assert.equal(paid.paymentReference,'123456789012');assert.match(messages.at(-1)!,/owner confirmed receipt/);
 });
+
+test('owner can approve, reject or counter a requested order', async t => {
+  const keys=['PINELABS_CLIENT_ID','PINELABS_CLIENT_SECRET'];
+  const original=Object.fromEntries(keys.map(k=>[k,process.env[k]]));
+  for(const k of keys)delete process.env[k];
+  const db=new DatabaseSync(':memory:');const messages:string[]=[];
+  db.exec("CREATE TABLE businesses(id TEXT PRIMARY KEY,profile TEXT NOT NULL)");db.prepare('INSERT INTO businesses VALUES(?,?)').run('cafe',JSON.stringify({name:'Barfae Foods'}));
+  const c=createCommerce(db,(_thread,text)=>messages.push(text));
+  t.after(()=>{c.stop();db.close();for(const k of keys){if(original[k]!==undefined)process.env[k]=original[k];}});
+  c.saveSettings('cafe',{catalog:[{id:'kids',name:'Kids Birthday Pack',price:22900}],autoCheckout:false,upiId:'barfae@upi'});
+  const b={id:'cafe',slug:'barfae'},thread={id:'parent-thread'};
+  const order=(key:string)=>c.purchase(b,thread,{requestKey:key,items:[{id:'kids',quantity:20}],customer:{name:'Amit Kumar',email:'amit@example.com',phone:'9123456780'}});
+
+  const countered=await order('request-counter');assert.equal(countered.status,'requested');
+  await assert.rejects(()=>c.action('cafe',b.slug,countered.id,'counter',thread.id,{amount:4000}),/Only the owner/);
+  await assert.rejects(()=>c.action('cafe',b.slug,countered.id,'counter',undefined,{amount:4580}),/same as the current total/);
+  const after=await c.action('cafe',b.slug,countered.id,'counter',undefined,{amount:4300,note:'Best price for 20 kids'});
+  assert.equal(after.amount,430000);assert.equal(after.originalAmount,458000);assert.equal(after.status,'upi_pending');
+  assert.match(after.paymentUrl,/am=4300\.00/);assert.ok(messages.some(m=>/proposed ₹4300\.00/.test(m)&&/Best price for 20 kids/.test(m)));
+  await assert.rejects(()=>c.action('cafe',b.slug,countered.id,'reject'),/awaiting your approval/);
+
+  const rejected=await order('request-reject');
+  const r=await c.action('cafe',b.slug,rejected.id,'reject',undefined,{reason:'Fully booked that evening'});
+  assert.equal(r.status,'rejected');assert.equal(r.ownerNote,'Fully booked that evening');
+  assert.ok(messages.some(m=>/couldn't accept/.test(m)&&/Fully booked/.test(m)));
+  assert.equal((await c.action('cafe',b.slug,rejected.id,'approve')).status,'rejected','a rejected order cannot be approved');
+
+  const approved=await order('request-approve');
+  assert.equal((await c.action('cafe',b.slug,approved.id,'approve')).status,'upi_pending');
+});

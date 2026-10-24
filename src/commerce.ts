@@ -15,6 +15,8 @@ export function createCommerce(db: DatabaseSync, message: (thread: string, text:
     ['orders','upi_id',"TEXT NOT NULL DEFAULT ''"],
     ['orders','payment_reference',"TEXT NOT NULL DEFAULT ''"],
     ['orders','confirmation_source',"TEXT NOT NULL DEFAULT ''"],
+    ['orders','original_amount',"INTEGER"],
+    ['orders','owner_note',"TEXT NOT NULL DEFAULT ''"],
   ]) {
     const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Row[];
     if (!columns.some(c => c.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
@@ -27,7 +29,7 @@ export function createCommerce(db: DatabaseSync, message: (thread: string, text:
   const locks = new Set<string>();
   let closed = false;
   const settings = (business: string) => { const s = one('SELECT * FROM commerce_settings WHERE business=?', business); return { catalog: s ? JSON.parse(s.catalog) : [], autoCheckout: !!s?.auto_checkout, upiId: s?.upi_id || '' }; };
-  const publicOrder = (o: Row) => ({ id: o.id, thread: o.thread, items: JSON.parse(o.items), amount: o.amount, currency: 'INR', status: o.status, paymentUrl: o.link_url, expires: o.expires, created: o.created, paymentMethod: o.payment_method, upiId: o.upi_id, paymentReference: o.payment_reference, confirmationSource: o.confirmation_source });
+  const publicOrder = (o: Row) => ({ id: o.id, thread: o.thread, items: JSON.parse(o.items), amount: o.amount, currency: 'INR', status: o.status, paymentUrl: o.link_url, expires: o.expires, created: o.created, paymentMethod: o.payment_method, upiId: o.upi_id, paymentReference: o.payment_reference, confirmationSource: o.confirmation_source, originalAmount: o.original_amount ?? null, ownerNote: o.owner_note || '' });
   async function agent(business: string, role: string, scope: string, inputs: unknown) {
     try {
       const result = await runAgent(role, inputs);
@@ -152,6 +154,31 @@ export function createCommerce(db: DatabaseSync, message: (thread: string, text:
           if (input?.received !== true) fail('Confirm that you checked your UPI app or bank and received the full amount.');
           db.exec('BEGIN');
           try {run("UPDATE orders SET status='paid',confirmation_source='owner',updated=? WHERE id=?",now(),id);message(o!.thread,`The business owner confirmed receipt of ₹${(o!.amount/100).toFixed(2)} for order ${id.slice(0,8)}. Your order is paid. The business will arrange fulfilment.`);db.exec('COMMIT');}catch(e){db.exec('ROLLBACK');throw e;}
+        } else if (action === 'reject') {
+          if (thread) fail('Only the owner can reject an order.', 403);
+          if (!['requested','approved'].includes(o!.status) || o!.link_url) fail('Only orders awaiting your approval can be rejected.', 409);
+          const note = typeof input?.reason === 'string' ? input.reason.trim().slice(0, 300) : '';
+          db.exec('BEGIN');
+          try {
+            run("UPDATE orders SET status='rejected',owner_note=?,updated=? WHERE id=?", note, now(), id);
+            message(o!.thread, `Sorry, the business couldn't accept order ${id.slice(0,8)}${note ? `: ${note}` : '.'} You're welcome to send a new request.`);
+            db.exec('COMMIT');
+          } catch (e) { db.exec('ROLLBACK'); throw e; }
+        } else if (action === 'counter') {
+          if (thread) fail('Only the owner can counter an order.', 403);
+          if (!['requested','approved'].includes(o!.status) || o!.link_url) fail('Only orders awaiting your approval can be countered.', 409);
+          const amount = Math.round(Number(input?.amount) * 100);
+          if (!Number.isSafeInteger(amount) || amount < 100 || amount > 50_000_000) fail('Enter a counter amount between ₹1 and ₹5,00,000.');
+          if (amount === o!.amount) fail('The counter amount is the same as the current total. Approve the order instead.');
+          const note = typeof input?.note === 'string' ? input.note.trim().slice(0, 300) : '';
+          db.exec('BEGIN');
+          try {
+            run("UPDATE orders SET original_amount=COALESCE(original_amount,amount),amount=?,status='approved',owner_note=?,updated=? WHERE id=?", amount, note, now(), id);
+            message(o!.thread, `The business has proposed ₹${(amount / 100).toFixed(2)} for order ${id.slice(0,8)} (your request was ₹${(o!.amount / 100).toFixed(2)})${note ? `. ${note}` : '.'} Paying the request below accepts this price.`);
+            db.exec('COMMIT');
+          } catch (e) { db.exec('ROLLBACK'); throw e; }
+          // The payment request carries the countered amount.
+          await issue(one('SELECT * FROM orders WHERE id=?', id)!, slug);
         } else if (action === 'refresh') await reconcile(o!);
         else if (action === 'approve') {
           if (o!.status === 'requested') { run("UPDATE orders SET status='approved',updated=? WHERE id=?",now(),id); o!.status='approved'; }

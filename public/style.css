@@ -112,3 +112,4 @@ button:disabled {
     padding-left: 0;
   }
 }
+.counter-form{display:grid;grid-template-columns:minmax(120px,1fr) 2fr auto;gap:10px;align-items:end;margin-top:14px}.counter-form label input{margin-top:6px}@media(max-width:700px){.counter-form{grid-template-columns:1fr}}
