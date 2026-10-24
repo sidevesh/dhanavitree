@@ -53,17 +53,23 @@ Owners can do the setup conversation by voice, and customers can talk to the bus
 How it works: [Pipecat](https://github.com/pipecat-ai/pipecat) runs as a separate Python service in `voice/`. It handles speech only:
 
 ```
-browser mic ──WebRTC──▶ voice/bot.py: Silero VAD → OpenAI speech-to-text
-                                         │ transcript (one turn after a 1.2 s pause)
-                                         ▼
-                        Node /api/voice/turn → same owner setup / customer answer as typed chat
-                                         │ reply text
-browser speaker ◀─WebRTC── OpenAI text-to-speech
+browser mic ─WebSocket /api/voice/ws─▶ Node ─proxy─▶ voice/bot.py: Silero VAD → OpenAI speech-to-text
+                                                        │ transcript (one turn after a 1.2 s pause)
+                                                        ▼
+                                       Node /api/voice/turn → same owner setup / customer answer as typed chat
+                                                        │ reply text
+browser speaker ◀─────────── same WebSocket ◀────────── OpenAI text-to-speech
 ```
 
-The browser sends its WebRTC offer to Node (`/api/voice/offer` for owners, `/api/public/SLUG/voice` for customers). Node checks the owner session or guest cookie, creates a one-hour voice token and forwards the offer to the voice service. The voice service listens on `127.0.0.1` and only accepts requests carrying `VOICE_INTERNAL_SECRET`. The setup steps, escalation to the owner and saved knowledge are not duplicated in Python.
+Audio is 16 kHz 16-bit mono PCM over a same-origin WebSocket (`public/voice-worklet.js` converts it), so calls work anywhere HTTPS does, with no UDP, STUN or TURN. Starting a call:
 
-Run it locally (Python 3.10+):
+1. The browser asks Node for a token (`/api/voice/start` for owners, `/api/public/SLUG/voice` for customers). Node checks the owner session or guest cookie first.
+2. The browser opens `/api/voice/ws?token=…`. Each token opens one call and must be used within a minute.
+3. Node proxies the WebSocket to the voice service with `VOICE_INTERNAL_SECRET`, without the visitor's cookies.
+
+The setup steps, escalation to the owner and saved knowledge are not duplicated in Python.
+
+Run it locally (Python 3.11+):
 
 ```sh
 npm run voice:setup        # once: creates voice/.venv and installs Pipecat
@@ -78,8 +84,9 @@ Speech uses OpenAI `gpt-4o-transcribe` and `gpt-4o-mini-tts`. If `LLM_PROVIDER` 
 - Wait for the bot to finish before answering. Speech that starts while it is talking is ignored as echo, and the bot does not stop when interrupted.
 - Each setup answer ends after a pause of about 1.2 seconds, set by `VOICE_TURN_PAUSE_SECS`. A longer pause in the middle of an answer sends the rest as the answer to the next question. Correct any mistakes in **Business** before publishing.
 - Saying "skip" skips a setup question.
+- A deploy of either service ends calls in progress.
 
-**Deployment:** `render.yaml` runs only the Node service. Voice needs the Python service running beside it, plus media connectivity between the browser and the voice service. WebRTC audio flows directly between them over UDP, not through Node. If the voice service is not reachable over UDP, as on typical PaaS web services, set `VOICE_ICE_SERVERS` to a TURN relay, or switch Pipecat to a hosted transport such as Daily.
+**Render:** `render.yaml` adds a private service, `dhanavitree-voice` (Python, Starter plan, about 140 MB in use during a call). This service is billed separately from the web service. The Blueprint wires up both services: it generates `VOICE_INTERNAL_SECRET` once and shares it, and it sets `VOICE_URL` and `DHANAVI_URL` from each service's private address. After the first sync, set `VOICE_OPENAI_API_KEY` on `dhanavitree-voice` in the dashboard. Render does not prompt for it when a service is added to an existing Blueprint, and the voice service will not start without it. If production is not managed by the Blueprint, create the private service by hand with the same commands and variables, then set `VOICE_URL` (`dhanavitree-voice:10000`) and the same `VOICE_INTERNAL_SECRET` on the web service.
 
 ## Files, search and creatives
 

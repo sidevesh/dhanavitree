@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { createServer } from 'node:http';
+import { createServer as createNetServer, connect, type Socket } from 'node:net';
 for(const key of ['LLM_BASE_URL','LLM_API_KEY','LLM_MODEL','OWNER_MODEL','CUSTOMER_MODEL','VISION_MODEL']) delete process.env[key];
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -9,23 +9,32 @@ import { join } from 'node:path';
 import { createWebApp } from '../src/web.ts';
 
 test('voice calls run owner setup and customer chat through the shared conversation turns', async t => {
- // Stand-in for the Pipecat service: records each offer and returns an SDP answer.
- const offers:any[]=[];
- const voice=createServer(async(req,res)=>{let raw='';for await(const c of req)raw+=c;offers.push({secret:req.headers['x-voice-secret'],body:JSON.parse(raw)});res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({sdp:'answer-sdp',type:'answer',pc_id:'pc-1'}));});
+ // Stand-in for the Pipecat service: records each proxied WebSocket handshake, accepts it and echoes bytes.
+ const handshakes:string[]=[];const voiceSockets=new Set<Socket>();
+ const voice=createNetServer(socket=>{voiceSockets.add(socket);let raw='';socket.on('data',function first(chunk){raw+=chunk;if(!raw.includes('\r\n\r\n'))return;socket.off('data',first);const [head,rest]=raw.split('\r\n\r\n');handshakes.push(head);socket.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n');if(rest)socket.write('echo:'+rest);socket.on('data',c=>socket.write('echo:'+c));});});
  voice.listen(0,'127.0.0.1');await once(voice,'listening');const va=voice.address();assert(va&&typeof va!=='string');
- process.env.VOICE_URL=`http://127.0.0.1:${va.port}`;process.env.VOICE_INTERNAL_SECRET='voice-secret-for-tests';
+ // Render's private-network reference has no scheme.
+ process.env.VOICE_URL=`127.0.0.1:${va.port}`;process.env.VOICE_INTERNAL_SECRET='voice-secret-for-tests';
  const dir=mkdtempSync(join(tmpdir(),'dhanavi-voice-'));const server=createWebApp(join(dir,'data.json'));
  server.listen(0,'127.0.0.1');await once(server,'listening');const a=server.address();assert(a&&typeof a!=='string');const base=`http://127.0.0.1:${a.port}`;
- t.after(()=>{server.closeAllConnections();server.close();voice.closeAllConnections();voice.close();rmSync(dir,{recursive:true,force:true});delete process.env.VOICE_URL;delete process.env.VOICE_INTERNAL_SECRET;});
+ t.after(()=>{server.closeAllConnections();server.close();for(const s of voiceSockets)s.destroy();voice.close();rmSync(dir,{recursive:true,force:true});delete process.env.VOICE_URL;delete process.env.VOICE_INTERNAL_SECRET;});
  const request=(path:string,body?:unknown,headers:Record<string,string>={})=>fetch(base+path,{method:body===undefined?'GET':'POST',headers:{...(body!==undefined?{'Content-Type':'application/json'}:{}),...headers},...(body!==undefined?{body:JSON.stringify(body)}:{})});
+ // Opens a raw WebSocket upgrade through Node and returns the status line plus anything echoed back.
+ const upgrade=(path:string,headers:Record<string,string>={},send='')=>new Promise<string>((resolve,reject)=>{const socket:Socket=connect(a.port,'127.0.0.1',()=>{socket.write([`GET ${path} HTTP/1.1`,`Host: 127.0.0.1:${a.port}`,'Upgrade: websocket','Connection: Upgrade','Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==','Sec-WebSocket-Version: 13','Cookie: dhanavi_session=private',...Object.entries(headers).map(([k,v])=>`${k}: ${v}`)].join('\r\n')+'\r\n\r\n');if(send)setTimeout(()=>socket.write(send),50);});let out='';socket.on('data',c=>{out+=c;if(!send||out.includes('echo:'))socket.end();});socket.on('close',()=>resolve(out));socket.on('error',reject);setTimeout(()=>socket.destroy(),2000);});
  const turn=async(token:string,text='',secret='voice-secret-for-tests')=>{const r=await request('/api/voice/turn',{token,text},{'X-Voice-Secret':secret});return {status:r.status,...await r.json() as any};};
 
  const signup=await request('/api/auth/signup',{name:'Kavya',email:'kavya@example.com',password:'correct-horse-123'});const owner={Cookie:signup.headers.get('set-cookie')!.split(';')[0]};
  assert.equal((await(await request('/api/me',undefined,owner)).json()).voice,true);
- assert.equal((await request('/api/voice/offer',{sdp:'offer-sdp',type:'offer'})).status,401,'voice needs a signed-in owner');
- assert.equal((await request('/api/voice/offer',{sdp:'offer-sdp',type:'answer'},owner)).status,400);
- const offer=await request('/api/voice/offer',{sdp:'offer-sdp',type:'offer'},owner);assert.equal(offer.status,200);assert.deepEqual(await offer.json(),{sdp:'answer-sdp',type:'answer'});
- assert.equal(offers.at(-1).secret,'voice-secret-for-tests');assert.equal(offers.at(-1).body.sdp,'offer-sdp');const ownerToken=offers.at(-1).body.request_data.token;
+ assert.equal((await request('/api/voice/start',{})).status,401,'voice needs a signed-in owner');
+ const start=await request('/api/voice/start',{},owner);assert.equal(start.status,200);const ownerToken=(await start.json()).token;
+
+ assert.match(await upgrade('/api/voice/ws?token=wrong'),/^HTTP\/1.1 401/);
+ assert.match(await upgrade('/api/voice/ws?token='+ownerToken,{Origin:'https://evil.example'}),/^HTTP\/1.1 403/);
+ assert.match(await upgrade('/api/voice/ws?token='+ownerToken,{Origin:`http://127.0.0.1:${a.port}`},'audio-bytes'),/^HTTP\/1.1 101[\s\S]*echo:audio-bytes/,'audio flows both ways');
+ const handshake=handshakes.at(-1)!;
+ assert.match(handshake,new RegExp(`^GET /ws\\?token=${ownerToken} `));assert.match(handshake,/X-Voice-Secret: voice-secret-for-tests/);assert.match(handshake,/sec-websocket-key: dGhlIHNhbXBsZSBub25jZQ==/);
+ assert.doesNotMatch(handshake,/Cookie|dhanavi_session/i,'visitor cookies are not forwarded');
+ assert.match(await upgrade('/api/voice/ws?token='+ownerToken),/^HTTP\/1.1 401/,'a token opens one call');
 
  assert.equal((await turn(ownerToken,'hello','wrong-secret-for-the-tests')).status,403);
  assert.equal((await turn('not-a-token','hello')).status,401);
@@ -39,8 +48,8 @@ test('voice calls run owner setup and customer chat through the shared conversat
 
  assert.equal((await request('/api/business',{published:true},owner)).status,200);
  assert.equal((await(await request('/api/public/'+me.business.slug)).json()).voice,true);
- const customerOffer=await request('/api/public/'+me.business.slug+'/voice',{sdp:'customer-offer',type:'offer'});assert.equal(customerOffer.status,200);
- const guest={Cookie:customerOffer.headers.get('set-cookie')!.split(';')[0]};const customerToken=offers.at(-1).body.request_data.token;
+ const customerStart=await request('/api/public/'+me.business.slug+'/voice',{});assert.equal(customerStart.status,200);
+ const guest={Cookie:customerStart.headers.get('set-cookie')!.split(';')[0]};const customerToken=(await customerStart.json()).token;
  assert.match((await turn(customerToken)).reply,/assistant for Mogra Studio/);
  assert.match((await turn(customerToken,'What are your opening hours?')).reply,/9 am/);
  const chat=await(await request('/api/public/'+me.business.slug,undefined,guest)).json();

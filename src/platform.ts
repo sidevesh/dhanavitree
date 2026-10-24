@@ -6,6 +6,8 @@ import { promisify } from 'node:util';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { connect } from 'node:net';
+import type { Duplex } from 'node:stream';
 const scrypt = promisify(derive);
 type Profile = Record<string, string>;
 type Row = Record<string, any>;
@@ -127,22 +129,43 @@ export function createPlatform(file: string) {
   else{const match=text.match(/^(name|offerings|location|contact|hours|policies)\s*:\s*([\s\S]+)$/i);if(match){saveDraft(b,{[match[1].toLowerCase()]:match[2]});reply='I prepared that update for review. Confirm the proposed change below to save it.';}else reply='Your message is saved. You can update Business details or answer questions in Customers. Please try this conversation again later.';}
   addMessage('owner_messages',b.id,'assistant',reply.slice(0,16000));return reply;
  }
- // Voice calls run in the Pipecat service (voice/bot.py). Node keeps the signed-in owner or guest
- // and hands the service a short-lived token; every spoken turn comes back here through /api/voice/turn.
- const voiceTokens=new Map<string,{business:string;thread?:string;expires:number}>();
+ // Voice calls run in the Pipecat service (voice/bot.py). Node keeps the signed-in owner or guest and
+ // hands out a short-lived token. The browser opens /api/voice/ws with it, Node proxies that WebSocket to
+ // the voice service, and every spoken turn comes back here through /api/voice/turn.
+ const voiceTokens=new Map<string,{business:string;thread?:string;expires:number;connected?:boolean}>();
  const voiceConfigured=()=>!!(process.env.VOICE_URL&&process.env.VOICE_INTERNAL_SECRET);
- async function voiceOffer(input:any,scope:{business:string;thread?:string}){
+ // Render's private-network references are host:port without a scheme.
+ const voiceUrl=()=>{const raw=process.env.VOICE_URL!;return new URL(/^[a-z]+:\/\//i.test(raw)?raw:'http://'+raw);};
+ function voiceStart(scope:{business:string;thread?:string}){
   if(!voiceConfigured())throw Object.assign(Error('Voice conversations are not available right now.'),{status:503});
-  if(typeof input.sdp!=='string'||input.type!=='offer'||input.sdp.length>100_000)throw Object.assign(Error('Invalid voice request'),{status:400});
   const t=Date.now();for(const [k,v]of voiceTokens)if(v.expires<t)voiceTokens.delete(k);
-  const token=randomBytes(24).toString('hex');voiceTokens.set(token,{...scope,expires:t+3600_000});
-  try{
-   const r=await fetch(process.env.VOICE_URL!.replace(/\/+$/,'')+'/offer',{method:'POST',headers:{'Content-Type':'application/json','X-Voice-Secret':process.env.VOICE_INTERNAL_SECRET!},body:JSON.stringify({sdp:input.sdp,type:input.type,request_data:{token}}),signal:AbortSignal.timeout(20_000)});
-   if(!r.ok)throw Error(String(r.status));const answer=await r.json() as any;return {sdp:answer.sdp,type:answer.type};
-  }catch{voiceTokens.delete(token);throw Object.assign(Error('Voice service is unavailable. Please type instead.'),{status:502});}
+  // One minute to open the call; connecting extends it for the length of a call.
+  const token=randomBytes(24).toString('hex');voiceTokens.set(token,{...scope,expires:t+60_000});return {token};
+ }
+ function voiceUpgrade(req:IncomingMessage,socket:Duplex,head:Buffer){
+  const reject=(status:string)=>{socket.end(`HTTP/1.1 ${status}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);};
+  const url=new URL(req.url||'/','http://localhost');
+  if(url.pathname!=='/api/voice/ws')return reject('404 Not Found');
+  // Upgrades bypass handle(), so repeat its cross-site check here.
+  if(req.headers.origin&&req.headers.origin!==`https://${req.headers.host}`&&req.headers.origin!==`http://${req.headers.host}`)return reject('403 Forbidden');
+  if(!voiceConfigured())return reject('503 Service Unavailable');
+  const token=url.searchParams.get('token')||'';const v=voiceTokens.get(token);
+  if(!v||v.expires<Date.now()||v.connected)return reject('401 Unauthorized');
+  v.connected=true;v.expires=Date.now()+2*3600_000;
+  const target=voiceUrl();let open=false;
+  const upstream=connect(Number(target.port||80),target.hostname,()=>{
+   open=true;
+   // Rebuild the handshake: forward only the WebSocket headers, never the visitor's cookies.
+   const lines=[`GET /ws?token=${token} HTTP/1.1`,`Host: ${target.host}`,'Upgrade: websocket','Connection: Upgrade',`X-Voice-Secret: ${process.env.VOICE_INTERNAL_SECRET}`];
+   for(const name of ['sec-websocket-key','sec-websocket-version','sec-websocket-extensions'])if(req.headers[name])lines.push(`${name}: ${req.headers[name]}`);
+   upstream.write(lines.join('\r\n')+'\r\n\r\n');if(head.length)upstream.write(head);
+   upstream.pipe(socket);socket.pipe(upstream);
+  });
+  upstream.on('error',()=>{if(!open){voiceTokens.delete(token);reject('502 Bad Gateway');}else socket.destroy();});
+  upstream.on('close',()=>socket.destroy());socket.on('error',()=>upstream.destroy());socket.on('close',()=>upstream.destroy());
  }
  function voiceSecretValid(req:IncomingMessage){const secret=process.env.VOICE_INTERNAL_SECRET||'',given=String(req.headers['x-voice-secret']||'');return !!secret&&given.length===secret.length&&timingSafeEqual(Buffer.from(given),Buffer.from(secret));}
- return {close:()=>{clearInterval(poller);commerce.stop();db.close();},handle:async(req:IncomingMessage,res:ServerResponse):Promise<boolean>=>{
+ return {close:()=>{clearInterval(poller);commerce.stop();db.close();},upgrade:voiceUpgrade,handle:async(req:IncomingMessage,res:ServerResponse):Promise<boolean>=>{
   const url=new URL(req.url||'/','http://localhost');if(!url.pathname.startsWith('/api/'))return false;
   const json=(status:number,data:unknown)=>{res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(data));};
   try{
@@ -177,7 +200,7 @@ export function createPlatform(file: string) {
    const publicMatch=url.pathname.match(/^\/api\/public\/([a-z0-9-]+)(?:\/(messages|orders|voice)(?:\/([a-zA-Z0-9-]+)\/(refresh|report))?)?$/);
    if(publicMatch){const b=one('SELECT * FROM businesses WHERE slug=? AND published=1',publicMatch[1]);if(!b){json(404,{error:'This business chat is not available.'});return true;}const thread=guest(req,res,b,req.method==='POST');
     if(publicMatch[2]==='orders'&&req.method==='POST'&&thread){const input=await body(req);const order=publicMatch[3]?await commerce.action(b.id,b.slug,publicMatch[3],publicMatch[4],thread.id,input):await commerce.purchase(b,thread,input);json(200,{order});return true;}
-    if(publicMatch[2]==='voice'&&req.method==='POST'&&thread){json(200,await voiceOffer(await body(req),{business:b.id,thread:thread.id}));return true;}
+    if(publicMatch[2]==='voice'&&req.method==='POST'&&thread){json(200,voiceStart({business:b.id,thread:thread.id}));return true;}
     if(req.method==='GET'){json(200,{voice:voiceConfigured(),business:snapshot(b),catalog:commerce.settings(b.id).catalog,orders:thread?commerce.publicOrders(thread.id):[],messages:thread?all('SELECT id,sender,text,created FROM messages WHERE thread=? ORDER BY rowid',thread.id):[]});return true;}
     if(req.method==='POST'&&publicMatch[2]==='messages'&&thread){const input=await body(req);const text=typeof input.text==='string'?input.text.trim():'';if(!text||text.length>4000){json(400,{error:'Write a message of up to 4,000 characters.'});return true;}if(locks.has(thread.id)){json(409,{error:'Please wait for the current reply.'});return true;}locks.add(thread.id);try{addMessage('messages',thread.id,'customer',text);await answerCustomer(b,thread,text);}finally{locks.delete(thread.id);}json(201,{ok:true});return true;}
     json(405,{error:'Method not allowed'});return true;
@@ -186,7 +209,7 @@ export function createPlatform(file: string) {
    if(url.pathname==='/api/me'&&req.method==='GET'){json(200,{owner:{name:owner.name,email:owner.email},commerce:commerce.ownerState(b.id),business:snapshot(b),messages:all('SELECT id,sender,text,created FROM owner_messages WHERE business=? ORDER BY rowid',b.id),drafts:all('SELECT id,changes FROM drafts WHERE business=? ORDER BY rowid DESC',b.id).map(d=>({...d,changes:JSON.parse(d.changes)})),facts:all('SELECT * FROM facts WHERE business=? ORDER BY rowid DESC',b.id),questions:all('SELECT * FROM questions WHERE business=? ORDER BY rowid DESC',b.id),threads:all('SELECT id,created FROM threads WHERE business=? ORDER BY rowid DESC',b.id).map(t=>({...t,messages:all('SELECT id,sender,text,created FROM messages WHERE thread=? ORDER BY rowid',t.id)})),files:all('SELECT id,name,mime,created FROM files WHERE business=? ORDER BY rowid DESC',b.id),creatives:all('SELECT id,url,prompt,created FROM creatives WHERE business=? ORDER BY rowid DESC',b.id),aiConfigured:agentConfigured('owner')||!!(process.env.LLM_BASE_URL&&process.env.LLM_API_KEY&&(process.env.OWNER_MODEL||process.env.LLM_MODEL)),searchConfigured:builtInToolsConfigured(),voice:voiceConfigured(),imageConfigured:!!(imageConfig().base&&imageConfig().key&&imageConfig().model)});return true;}
    if(req.method==='GET'&&url.pathname.startsWith('/api/files/')){const f=one('SELECT * FROM files WHERE id=? AND business=?',url.pathname.split('/').at(-1),b.id);if(!f){json(404,{error:'File not found'});return true;}res.writeHead(200,{'Content-Type':f.mime,'Content-Disposition':`attachment; filename="${f.name.replace(/[^a-zA-Z0-9._-]/g,'_')}"`,'X-Content-Type-Options':'nosniff','Cache-Control':'private, no-store'});res.end(f.content);return true;}
    if(req.method!=='POST'){json(404,{error:'Not found'});return true;}const input=await body(req);
-   if(url.pathname==='/api/voice/offer'){json(200,await voiceOffer(input,{business:b.id}));return true;}
+   if(url.pathname==='/api/voice/start'){json(200,voiceStart({business:b.id}));return true;}
    if(url.pathname==='/api/commerce'){commerce.saveSettings(b.id,input);json(200,{ok:true});return true;}
    const orderAction=url.pathname.match(/^\/api\/orders\/([a-zA-Z0-9-]+)\/(approve|reject|counter|refresh|review|confirm)$/);if(orderAction){json(200,{order:await commerce.action(b.id,b.slug,orderAction[1],orderAction[2],undefined,input)});return true;}
    if(url.pathname==='/api/business'){

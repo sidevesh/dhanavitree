@@ -15,29 +15,30 @@ function time(at){return new Date(at).toLocaleTimeString([],{hour:'2-digit',minu
 function date(at){return new Date(at).toLocaleDateString([],{month:'short',day:'numeric'});}
 function messageHtml(messages,mine){return messages.map(m=>`<div class="msg ${m.sender===mine?'mine':''}"><span class="msg-label">${esc(m.sender===mine?'You':m.sender==='assistant'?'Dhanavi · AI assistant':m.sender==='business'?'Business owner':'Customer')}</span><div class="bubble">${esc(m.text)}<time>${esc(time(m.created))}</time></div></div>`).join('');}
 // Voice conversation through the Pipecat service. The call lives outside #app because views re-render on every poll.
-const voice={pc:null,stream:null,status:'idle'};
+const voice={ws:null,ctx:null,stream:null,status:'idle'};
 function voiceButton(){return `<button type="button" class="button secondary voice-button${voice.status==='idle'?'':' live'}" data-voice aria-pressed="${voice.status!=='idle'}">${voice.status==='connecting'?'Connecting…':voice.status==='live'?'■ End call':'🎙 Talk'}</button>`;}
-function wireVoice(){document.querySelectorAll('[data-voice]').forEach(b=>b.onclick=()=>voice.status!=='idle'?stopVoice():startVoice(slug?'/api/public/'+slug+'/voice':'/api/voice/offer'));}
+function wireVoice(){document.querySelectorAll('[data-voice]').forEach(b=>b.onclick=()=>voice.status!=='idle'?stopVoice():startVoice(slug?'/api/public/'+slug+'/voice':'/api/voice/start'));}
 function refreshVoice(){document.querySelectorAll('[data-voice]').forEach(b=>b.outerHTML=voiceButton());wireVoice();}
-function stopVoice(){voice.pc?.close();voice.stream?.getTracks().forEach(t=>t.stop());voice.pc=voice.stream=null;voice.status='idle';refreshVoice();}
+function stopVoice(){const {ws,ctx,stream}=voice;Object.assign(voice,{ws:null,ctx:null,stream:null,status:'idle'});ws?.close();ctx?.close();stream?.getTracks().forEach(t=>t.stop());refreshVoice();}
+// Audio goes over a same-origin WebSocket as 16 kHz PCM (see voice-worklet.js), so calls work wherever HTTPS does.
 async function startVoice(path){
- if(!navigator.mediaDevices?.getUserMedia||!window.RTCPeerConnection)return toast('Voice needs a browser with microphone access over HTTPS.');
- voice.status='connecting';refreshVoice();
+ if(!navigator.mediaDevices?.getUserMedia||!window.AudioWorkletNode)return toast('Voice needs a browser with microphone access over HTTPS.');
+ // Create the audio context inside the click so the browser lets it play.
+ const ctx=new AudioContext();Object.assign(voice,{ctx,status:'connecting'});refreshVoice();
  try{
   const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
-  if(voice.status!=='connecting')return stream.getTracks().forEach(t=>t.stop());
+  if(voice.ctx!==ctx)return stream.getTracks().forEach(t=>t.stop());
   voice.stream=stream;
-  const pc=voice.pc=new RTCPeerConnection({iceServers:[{urls:'stun:stun.l.google.com:19302'}]});
-  voice.stream.getTracks().forEach(t=>pc.addTrack(t,voice.stream));
-  pc.ontrack=e=>{let audio=$('voice-audio');if(!audio){audio=document.createElement('audio');audio.id='voice-audio';audio.autoplay=true;document.body.append(audio);}audio.srcObject=e.streams[0]||new MediaStream([e.track]);};
-  pc.onconnectionstatechange=()=>{if(voice.pc!==pc)return;if(pc.connectionState==='connected'){voice.status='live';refreshVoice();}else if(['failed','closed','disconnected'].includes(pc.connectionState)){if(pc.connectionState==='failed')toast('The voice connection was lost. Please try again.');stopVoice();}};
-  await pc.setLocalDescription(await pc.createOffer());
-  // Send the offer with all ICE candidates; the voice service does not accept trickled candidates through the app.
-  await new Promise(done=>{if(pc.iceGatheringState==='complete')return done();pc.addEventListener('icegatheringstatechange',()=>pc.iceGatheringState==='complete'&&done());setTimeout(done,3000);});
-  const answer=await api(path,{sdp:pc.localDescription.sdp,type:pc.localDescription.type});
-  if(voice.pc!==pc)return pc.close();
-  await pc.setRemoteDescription(answer);
- }catch(error){if(voice.status==='idle')return;stopVoice();toast(error.name==='NotAllowedError'?'Allow microphone access to talk.':error.message);}
+  await ctx.audioWorklet.addModule('/voice-worklet.js');await ctx.resume();
+  const node=new AudioWorkletNode(ctx,'dhanavi-voice',{outputChannelCount:[2]});ctx.createMediaStreamSource(stream).connect(node);node.connect(ctx.destination);
+  const {token}=await api(path,{});
+  if(voice.ctx!==ctx)return;
+  const ws=voice.ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/api/voice/ws?token=${encodeURIComponent(token)}`);ws.binaryType='arraybuffer';
+  node.port.onmessage=e=>{if(ws.readyState===WebSocket.OPEN)ws.send(e.data);};
+  ws.onmessage=e=>{if(e.data instanceof ArrayBuffer)node.port.postMessage(e.data,[e.data]);};
+  ws.onopen=()=>{if(voice.ws===ws){voice.status='live';refreshVoice();}};
+  ws.onclose=()=>{if(voice.ws!==ws)return;toast(voice.status==='live'?'The voice call ended.':'Could not start the voice call. Please type instead.');stopVoice();};
+ }catch(error){if(voice.ctx!==ctx)return;stopVoice();toast(error.name==='NotAllowedError'?'Allow microphone access to talk.':error.message);}
 }
 function auth(){state=null;$('app').innerHTML=`<div class="auth"><section class="auth-story"><div>${brand}</div><div><span class="eyebrow">YOUR BUSINESS, IN GOOD COMPANY</span><h1>A little more time.<br>A lot more <em>possibility.</em></h1><p>Tell us about your business. Share your chat link. Get help answering customers and deciding what comes next.</p><div class="auth-proof"><span>✳ Conversational setup</span><span>↗ Your own customer link</span></div></div><span class="auth-flower">✳</span></section><section class="auth-form-wrap"><form id="auth-form" class="auth-form"><span class="eyebrow">${authMode==='signup'?'LET’S GET STARTED':'WELCOME BACK'}</span><h2>${authMode==='signup'?'Make room for your business.':'Your business is waiting.'}</h2><p>${authMode==='signup'?'Create your owner account.':'Sign in to your private workspace.'}</p>${authMode==='signup'?'<label>Your name<input name="name" autocomplete="name" maxlength="80" required placeholder="e.g. Kavya"></label>':''}<label>Email address<input name="email" type="email" autocomplete="email" maxlength="254" required placeholder="you@yourbusiness.com"></label><label>Password<input name="password" type="password" autocomplete="${authMode==='signup'?'new-password':'current-password'}" minlength="8" maxlength="128" required placeholder="At least 8 characters"></label><p id="auth-error" class="inline-error" role="alert"></p><button class="button" type="submit">${authMode==='signup'?'Create account →':'Sign in →'}</button><div class="switch">${authMode==='signup'?'Already have an account?':'New here?'} <button type="button" class="text-button" id="auth-switch">${authMode==='signup'?'Sign in':'Create an account'}</button></div><p class="note">Your business workspace is private. Customers use a separate link and only see their own conversation.</p></form></section></div>`;
 $('auth-switch').onclick=()=>{authMode=authMode==='signup'?'login':'signup';auth();};$('auth-form').onsubmit=async e=>{e.preventDefault();const button=e.submitter;button.disabled=true;$('auth-error').textContent='';try{await api('/api/auth/'+authMode,Object.fromEntries(new FormData(e.target)));history.replaceState({},'','/app');await loadOwner(true);}catch(error){$('auth-error').textContent=error.message;}finally{button.disabled=false;}};}

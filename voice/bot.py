@@ -7,19 +7,20 @@ reply to speak.
 
 Pipeline: browser mic -> Silero VAD -> OpenAI STT -> DhanaviBridge -> OpenAI TTS -> browser speaker
 
-Only Node should reach this service: it listens on 127.0.0.1 and checks a shared secret.
+Audio travels as 16 kHz 16-bit mono PCM over a WebSocket that the browser opens to Node
+(/api/voice/ws); Node proxies it here. That works on hosts that only accept HTTPS, such as
+Render web services. Only Node should reach this service: it checks a shared secret.
 """
 
 import asyncio
 import hmac
-import json
 import os
 from pathlib import Path
 
 import aiohttp
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import BackgroundTasks, FastAPI, Header, HTTPException, Request
+from fastapi import FastAPI, WebSocket
 from loguru import logger
 
 from pipecat.audio.vad.silero import SileroVADAnalyzer
@@ -29,6 +30,8 @@ from pipecat.frames.frames import (
     BotStoppedSpeakingFrame,
     EndFrame,
     Frame,
+    InputAudioRawFrame,
+    OutputAudioRawFrame,
     TranscriptionFrame,
     TTSSpeakFrame,
     VADUserStartedSpeakingFrame,
@@ -40,26 +43,35 @@ from pipecat.processors.audio.vad_processor import VADProcessor
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.services.openai.stt import OpenAISTTService
 from pipecat.services.openai.tts import OpenAITTSService
-from pipecat.transports.base_transport import TransportParams
-from pipecat.transports.smallwebrtc.connection import IceServer, SmallWebRTCConnection
-from pipecat.transports.smallwebrtc.request_handler import (
-    SmallWebRTCRequest,
-    SmallWebRTCRequestHandler,
-)
-from pipecat.transports.smallwebrtc.transport import SmallWebRTCTransport
+from pipecat.serializers.base_serializer import FrameSerializer
+from pipecat.transports.websocket.fastapi import FastAPIWebsocketParams, FastAPIWebsocketTransport
 
 # Share the app's .env so one file configures both services.
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 SECRET = os.environ.get("VOICE_INTERNAL_SECRET", "")
-DHANAVI_URL = os.environ.get("DHANAVI_URL", f"http://127.0.0.1:{os.environ.get('PORT', '3000')}").rstrip("/")
+DHANAVI_URL = os.environ.get("DHANAVI_URL") or f"127.0.0.1:{os.environ.get('PORT', '3000')}"
+# Render's private-network references are host:port without a scheme.
+DHANAVI_URL = (DHANAVI_URL if "://" in DHANAVI_URL else "http://" + DHANAVI_URL).rstrip("/")
 OPENAI_KEY = os.environ.get("VOICE_OPENAI_API_KEY") or os.environ.get("LLM_API_KEY", "")
 OPENAI_BASE = os.environ.get("VOICE_OPENAI_BASE_URL") or "https://api.openai.com/v1"
 # Silence after speech before a turn is sent. Owners answering setup questions pause mid-answer,
 # so short pauses are joined into one turn instead of advancing onboarding early.
 TURN_PAUSE_SECS = float(os.environ.get("VOICE_TURN_PAUSE_SECS", "1.2"))
-# JSON list such as [{"urls":"turn:turn.example.com:3478","username":"u","credential":"p"}].
-ICE_SERVERS = [IceServer(**s) for s in json.loads(os.environ.get("VOICE_ICE_SERVERS") or '[{"urls":"stun:stun.l.google.com:19302"}]')]
+SAMPLE_RATE = 16000
+
+
+class PCMSerializer(FrameSerializer):
+    """Binary WebSocket messages are raw PCM: mic audio in, bot speech out."""
+
+    async def serialize(self, frame: Frame) -> bytes | None:
+        return frame.audio if isinstance(frame, OutputAudioRawFrame) else None
+
+    async def deserialize(self, data: str | bytes) -> Frame | None:
+        if isinstance(data, bytes) and data:
+            return InputAudioRawFrame(audio=data, sample_rate=SAMPLE_RATE, num_channels=1)
+        return None
+
 
 
 class DhanaviBridge(FrameProcessor):
@@ -142,10 +154,16 @@ class DhanaviBridge(FrameProcessor):
             await self.push_frame(frame, direction)
 
 
-async def run_bot(connection: SmallWebRTCConnection, token: str):
-    transport = SmallWebRTCTransport(
-        webrtc_connection=connection,
-        params=TransportParams(audio_in_enabled=True, audio_out_enabled=True),
+async def run_bot(websocket: WebSocket, token: str):
+    transport = FastAPIWebsocketTransport(
+        websocket=websocket,
+        params=FastAPIWebsocketParams(
+            audio_in_enabled=True,
+            audio_in_sample_rate=SAMPLE_RATE,
+            audio_out_enabled=True,
+            audio_out_sample_rate=SAMPLE_RATE,
+            serializer=PCMSerializer(),
+        ),
     )
     stt = OpenAISTTService(
         api_key=OPENAI_KEY,
@@ -186,24 +204,16 @@ async def run_bot(connection: SmallWebRTCConnection, token: str):
 
 
 app = FastAPI()
-handler = SmallWebRTCRequestHandler(ice_servers=ICE_SERVERS)
 
 
-@app.post("/offer")
-async def offer(request: Request, background: BackgroundTasks, x_voice_secret: str = Header(default="")):
-    if not SECRET or not hmac.compare_digest(x_voice_secret, SECRET):
-        raise HTTPException(status_code=403)
-    data = await request.json()
-    token = (data.get("request_data") or {}).get("token")
-    if not token:
-        raise HTTPException(status_code=400)
-
-    async def start(connection: SmallWebRTCConnection):
-        background.add_task(run_bot, connection, token)
-
-    return await handler.handle_web_request(
-        SmallWebRTCRequest(sdp=data["sdp"], type=data["type"]), start
-    )
+@app.websocket("/ws")
+async def voice_socket(websocket: WebSocket):
+    token = websocket.query_params.get("token", "")
+    if not SECRET or not hmac.compare_digest(websocket.headers.get("x-voice-secret", ""), SECRET) or not token:
+        await websocket.close(code=1008)
+        return
+    await websocket.accept()
+    await run_bot(websocket, token)
 
 
 @app.get("/health")
@@ -214,4 +224,4 @@ async def health():
 if __name__ == "__main__":
     if not SECRET or not OPENAI_KEY:
         raise SystemExit("Set VOICE_INTERNAL_SECRET and LLM_API_KEY (or VOICE_OPENAI_API_KEY) in .env")
-    uvicorn.run(app, host=os.environ.get("VOICE_HOST", "127.0.0.1"), port=int(os.environ.get("VOICE_PORT", "7860")))
+    uvicorn.run(app, host=os.environ.get("VOICE_HOST", "127.0.0.1"), port=int(os.environ.get("VOICE_PORT", "7860")), ws_ping_interval=20)

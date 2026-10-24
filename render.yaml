@@ -16,3 +16,40 @@ services:
         value: 24.19.0
       - key: DATA_DIR
         value: /var/data
+      # Voice: the browser's call WebSocket is proxied to the private voice service below.
+      - key: VOICE_URL
+        fromService:
+          type: pserv
+          name: dhanavitree-voice
+          property: hostport
+      - key: VOICE_INTERNAL_SECRET
+        fromService:
+          type: pserv
+          name: dhanavitree-voice
+          envVarKey: VOICE_INTERNAL_SECRET
+
+  # Pipecat speech service (voice/bot.py). Private: reachable only by the web service.
+  - type: pserv
+    name: dhanavitree-voice
+    runtime: python
+    plan: starter
+    buildCommand: pip install -r voice/requirements.txt
+    startCommand: python voice/bot.py
+    autoDeployTrigger: commit
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.9
+      - key: VOICE_HOST
+        value: 0.0.0.0
+      - key: VOICE_PORT
+        value: 10000
+      - key: VOICE_INTERNAL_SECRET
+        generateValue: true
+      - key: DHANAVI_URL
+        fromService:
+          type: web
+          name: dhanavitree
+          property: hostport
+      # OpenAI key for speech-to-text and text-to-speech. Set it in the dashboard.
+      - key: VOICE_OPENAI_API_KEY
+        sync: false
