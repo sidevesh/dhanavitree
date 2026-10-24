@@ -6,6 +6,8 @@ import { once } from 'node:events';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+// Background question preparation would add model calls this test counts.
+process.env.DHANAVI_AUTO_PREP='off';
 import { createWebApp } from '../src/web.ts';
 
 test('HITL chat answers are usable, profile edits need approval, and agent failures fall back',async t=>{

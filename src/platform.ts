@@ -24,6 +24,7 @@ export function createPlatform(file: string) {
  CREATE TABLE IF NOT EXISTS setup_messages(id TEXT PRIMARY KEY,business TEXT NOT NULL,sender TEXT NOT NULL,text TEXT NOT NULL,created TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS facts(id TEXT PRIMARY KEY,business TEXT NOT NULL,question TEXT NOT NULL,answer TEXT NOT NULL,created TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS questions(id TEXT PRIMARY KEY,business TEXT NOT NULL,thread TEXT NOT NULL,question TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'open',created TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS prep_questions(id TEXT PRIMARY KEY,business TEXT NOT NULL,question TEXT NOT NULL,suggestion TEXT NOT NULL DEFAULT '',status TEXT NOT NULL DEFAULT 'open',created TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS drafts(id TEXT PRIMARY KEY,business TEXT NOT NULL,changes TEXT NOT NULL,created TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS files(id TEXT PRIMARY KEY,business TEXT NOT NULL,name TEXT NOT NULL,mime TEXT NOT NULL,content BLOB NOT NULL,created TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS creatives(id TEXT PRIMARY KEY,business TEXT NOT NULL,url TEXT NOT NULL,prompt TEXT NOT NULL,created TEXT NOT NULL);`);
@@ -83,6 +84,31 @@ export function createPlatform(file: string) {
   recentOwnerMessages:all("SELECT text FROM owner_messages WHERE business=? AND sender='owner' ORDER BY rowid DESC LIMIT 12",b.id).reverse().map(m=>String(m.text).slice(0,2000))};}
  // Growth and market questions in the owner chat get a web-researched answer with sources.
  const GROWTH_QUESTION=/\b(grow|growth|more (customers|orders|sales|bookings)|increase|boost|improve (sales|business)|marketing|market|promot|advertis|instagram|facebook|social media|google (maps|business|reviews)|reviews?|competitor|competition|trend|festival|season|diwali|chhath|holi|wedding season|footfall|attract|pricing strateg|ideas? (for|to)|badh|zyada|kaise)/i;
+ // Prepared answers: research what customers ask similar nearby businesses, keep the questions the profile and
+ // saved answers don't cover, and ask the owner once so customers get instant answers instead of waiting.
+ const preparing=new Set<string>();
+ // DHANAVI_AUTO_PREP=off disables the automatic run (tests that count model calls); the owner button still works.
+ const autoPrep=()=>process.env.DHANAVI_AUTO_PREP!=='off';
+ async function prepareQuestions(businessId:string){
+  if(preparing.has(businessId)||!textConfigured())return 0;preparing.add(businessId);
+  try{
+   const b=one('SELECT * FROM businesses WHERE id=?',businessId);if(!b)return 0;
+   const profile=JSON.parse(b.profile);
+   const known=[...all('SELECT question FROM facts WHERE business=?',businessId),...all('SELECT question FROM prep_questions WHERE business=?',businessId)].map(r=>String(r.question));
+   let findings='';
+   if(builtInToolsConfigured()){try{findings=await research('What questions do customers most often ask businesses like this one in this area before ordering, booking or visiting? Look at FAQs, reviews and listings of similar nearby businesses. List the common questions.',researchContext(b));}catch(e:any){console.warn('Question research failed: '+e.message);}}
+   const result=await complete('You prepare a small business for customer questions. From the research findings (if any) and your knowledge of similar businesses, choose up to 8 short questions customers are likely to ask THIS business that its profile and already-known questions do NOT answer (for example parking, delivery area, vegetarian or Jain options, cake or decoration policy, advance booking, group size, payment methods, cancellation). For each, give a suggested answer ONLY when the profile clearly states it; otherwise use an empty string. Never invent facts. Return JSON {"questions":[{"question":"...","suggestion":"..."}]}.',
+    [{role:'user',content:JSON.stringify({profile,catalog:commerce.settings(businessId).catalog.map((i:any)=>({name:i.name,price:i.price/100})),alreadyKnown:known.slice(0,100),research:findings.slice(0,12000)})}],'owner');
+   const seen=new Set(known.map(q=>q.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim()));let added=0;
+   for(const item of Array.isArray(result?.questions)?result.questions.slice(0,8):[]){
+    const question=String(item?.question||'').trim().slice(0,300),key=question.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+    if(!question||seen.has(key))continue;seen.add(key);
+    run('INSERT INTO prep_questions(id,business,question,suggestion,status,created) VALUES(?,?,?,?,?,?)',randomUUID(),businessId,question,String(item?.suggestion||'').trim().slice(0,2000),'open',now());added++;
+   }
+   return added;
+  }catch(e:any){console.warn('Preparing questions failed: '+e.message);return 0;}
+  finally{preparing.delete(businessId);}
+ }
  async function answerCustomer(b:Row,thread:Row,text:string){
   const profile=JSON.parse(b.profile);const facts=all('SELECT question,answer FROM facts WHERE business=?',b.id);
   let answer='',needsOwner=true;
@@ -125,15 +151,22 @@ export function createPlatform(file: string) {
     json(405,{error:'Method not allowed'});return true;
    }
    const owner=ownerFor(req);if(!owner){json(401,{error:'Please sign in.'});return true;}const b=business(owner.id);
-   if(url.pathname==='/api/me'&&req.method==='GET'){json(200,{owner:{name:owner.name,email:owner.email},commerce:commerce.ownerState(b.id),business:snapshot(b),setup:{question:prompts[b.step]||null,complete:b.step>=onboarding.length,messages:all('SELECT id,sender,text,created FROM setup_messages WHERE business=? ORDER BY rowid',b.id)},messages:all('SELECT id,sender,text,created FROM owner_messages WHERE business=? ORDER BY rowid',b.id),drafts:all('SELECT id,changes FROM drafts WHERE business=? ORDER BY rowid DESC',b.id).map(d=>({...d,changes:JSON.parse(d.changes)})),facts:all('SELECT * FROM facts WHERE business=? ORDER BY rowid DESC',b.id),questions:all('SELECT * FROM questions WHERE business=? ORDER BY rowid DESC',b.id),threads:all('SELECT id,created FROM threads WHERE business=? ORDER BY rowid DESC',b.id).map(t=>({...t,messages:all('SELECT id,sender,text,created FROM messages WHERE thread=? ORDER BY rowid',t.id)})),files:all('SELECT id,name,mime,created FROM files WHERE business=? ORDER BY rowid DESC',b.id),creatives:all('SELECT id,url,prompt,created FROM creatives WHERE business=? ORDER BY rowid DESC',b.id),aiConfigured:agentConfigured('owner')||!!(process.env.LLM_BASE_URL&&process.env.LLM_API_KEY&&(process.env.OWNER_MODEL||process.env.LLM_MODEL)),searchConfigured:builtInToolsConfigured(),imageConfigured:!!(imageConfig().base&&imageConfig().key&&imageConfig().model)});return true;}
+   if(url.pathname==='/api/me'&&req.method==='GET'){json(200,{owner:{name:owner.name,email:owner.email},commerce:commerce.ownerState(b.id),business:snapshot(b),setup:{question:prompts[b.step]||null,complete:b.step>=onboarding.length,messages:all('SELECT id,sender,text,created FROM setup_messages WHERE business=? ORDER BY rowid',b.id)},messages:all('SELECT id,sender,text,created FROM owner_messages WHERE business=? ORDER BY rowid',b.id),drafts:all('SELECT id,changes FROM drafts WHERE business=? ORDER BY rowid DESC',b.id).map(d=>({...d,changes:JSON.parse(d.changes)})),facts:all('SELECT * FROM facts WHERE business=? ORDER BY rowid DESC',b.id),questions:all('SELECT * FROM questions WHERE business=? ORDER BY rowid DESC',b.id),threads:all('SELECT id,created FROM threads WHERE business=? ORDER BY rowid DESC',b.id).map(t=>({...t,messages:all('SELECT id,sender,text,created FROM messages WHERE thread=? ORDER BY rowid',t.id)})),files:all('SELECT id,name,mime,created FROM files WHERE business=? ORDER BY rowid DESC',b.id),creatives:all('SELECT id,url,prompt,created FROM creatives WHERE business=? ORDER BY rowid DESC',b.id),aiConfigured:agentConfigured('owner')||!!(process.env.LLM_BASE_URL&&process.env.LLM_API_KEY&&(process.env.OWNER_MODEL||process.env.LLM_MODEL)),prep:{questions:all("SELECT id,question,suggestion,created FROM prep_questions WHERE business=? AND status='open' ORDER BY rowid",b.id),preparing:preparing.has(b.id)},searchConfigured:builtInToolsConfigured(),imageConfigured:!!(imageConfig().base&&imageConfig().key&&imageConfig().model)});return true;}
    if(req.method==='GET'&&url.pathname.startsWith('/api/files/')){const f=one('SELECT * FROM files WHERE id=? AND business=?',url.pathname.split('/').at(-1),b.id);if(!f){json(404,{error:'File not found'});return true;}res.writeHead(200,{'Content-Type':f.mime,'Content-Disposition':`attachment; filename="${f.name.replace(/[^a-zA-Z0-9._-]/g,'_')}"`,'X-Content-Type-Options':'nosniff','Cache-Control':'private, no-store'});res.end(f.content);return true;}
    if(req.method!=='POST'){json(404,{error:'Not found'});return true;}const input=await body(req);
+   if(url.pathname==='/api/prep/refresh'){json(200,{added:await prepareQuestions(b.id)});return true;}
+   const prep=url.pathname.match(/^\/api\/prep\/([a-zA-Z0-9-]+)\/(answer|dismiss)$/);
+   if(prep){const p=one("SELECT * FROM prep_questions WHERE id=? AND business=? AND status='open'",prep[1],b.id);if(!p){json(404,{error:'Question already handled or not found'});return true;}
+    if(prep[2]==='dismiss'){run("UPDATE prep_questions SET status='dismissed' WHERE id=?",p.id);json(200,{ok:true});return true;}
+    const answer=typeof input.answer==='string'?input.answer.trim():'';if(!answer||answer.length>8000){json(400,{error:'Enter an answer of up to 8,000 characters.'});return true;}
+    db.exec('BEGIN');try{run('INSERT INTO facts VALUES(?,?,?,?,?)',randomUUID(),b.id,p.question,answer,now());run("UPDATE prep_questions SET status='answered' WHERE id=?",p.id);db.exec('COMMIT');}catch(e){db.exec('ROLLBACK');throw e;}
+    json(200,{ok:true});return true;}
    if(url.pathname==='/api/commerce'){commerce.saveSettings(b.id,input);json(200,{ok:true});return true;}
    const orderAction=url.pathname.match(/^\/api\/orders\/([a-zA-Z0-9-]+)\/(approve|reject|counter|refresh|review|confirm)$/);if(orderAction){json(200,{order:await commerce.action(b.id,b.slug,orderAction[1],orderAction[2],undefined,input)});return true;}
    if(url.pathname==='/api/business'){
     const changes=safeChanges(input.profile);for(const key of fields)if(input.profile?.[key]==='')changes[key]='';const profile={...JSON.parse(b.profile),...changes};let slug=b.slug;
     if(input.slug!==undefined){slug=String(input.slug).toLowerCase().trim();if(!/^[a-z0-9][a-z0-9-]{2,59}$/.test(slug)){json(400,{error:'Use 3–60 lowercase letters, numbers or hyphens for your link.'});return true;}if(one('SELECT id FROM businesses WHERE slug=? AND id!=?',slug,b.id)){json(409,{error:'That link is already taken.'});return true;}}
-    run('UPDATE businesses SET profile=?,slug=?,published=?,step=? WHERE id=?',JSON.stringify(profile),slug,input.published===undefined?b.published:input.published?1:0,input.published===true||onboarding.every(key=>profile[key])?onboarding.length:b.step,b.id);if(changes.pricing)await catalogFromPricing(b.id,profile.pricing);json(200,{ok:true});return true;
+    run('UPDATE businesses SET profile=?,slug=?,published=?,step=? WHERE id=?',JSON.stringify(profile),slug,input.published===undefined?b.published:input.published?1:0,input.published===true||onboarding.every(key=>profile[key])?onboarding.length:b.step,b.id);if(changes.pricing)await catalogFromPricing(b.id,profile.pricing);if(input.published===true&&autoPrep()&&!one('SELECT id FROM prep_questions WHERE business=? LIMIT 1',b.id))void prepareQuestions(b.id);json(200,{ok:true});return true;
    }
    if(url.pathname==='/api/owner/chat'||url.pathname==='/api/owner/setup'){
     const setup=url.pathname==='/api/owner/setup';
@@ -148,6 +181,8 @@ export function createPlatform(file: string) {
        const profile={...JSON.parse(b.profile),...result.updates};
        const step=result.status==='needs_clarification'?b.step:b.step+1;
        run('UPDATE businesses SET profile=?,step=? WHERE id=?',JSON.stringify(profile),step,b.id);
+       // Setup just finished: prepare likely customer questions in the background.
+       if(step>=onboarding.length&&b.step<onboarding.length&&autoPrep())void prepareQuestions(b.id);
        if(result.status==='answered'&&result.updates.pricing)await catalogFromPricing(b.id,profile.pricing);
        reply=result.status==='needs_clarification'?result.reply:step<onboarding.length?`${result.status==='skip'?'We can come back to that.':'Got it—saved your business details.'} ${prompts[step]}`:"Your business setup is complete. Review Business details before publishing your customer link. Open Dhanavi for questions, research and ideas.";
       }catch{reply=`I couldn't check those details right now. Your message is saved, but your business details haven't changed. Please try again, or choose Skip this detail. ${prompts[b.step]}`;}
