@@ -1,54 +1,50 @@
-# Dhanavitree WhatsApp bot
+# Dhanavitree
 
-A minimal private-message bot using Meta's official WhatsApp Cloud API. It verifies webhook signatures and replies to incoming text messages with a fixed greeting. No WhatsApp Web automation, AI integration, database, or group support is included yet.
+A WhatsApp-inspired web messaging workspace for a business and its customers. Runs independently of WhatsApp; Meta's Cloud API is an optional integration.
 
-## Deploy to Render
+## Run locally
 
-1. Push this project to `sidevesh/dhanavitree` on GitHub.
-2. In Render, create a **Blueprint** from that repository. Render reads `render.yaml`. It selects a paid **Starter** instance to avoid idle sleeping; check current pricing before creating the service. You can change the plan in the blueprint first if desired, but sleeping instances can delay webhook responses.
-3. Set the prompted environment variables securely in Render:
-
-   | Variable | Where to find it |
-   | --- | --- |
-   | `META_APP_SECRET` | Meta app settings → Basic → App secret |
-   | `WHATSAPP_ACCESS_TOKEN` | WhatsApp → API Setup → temporary access token for testing |
-   | `WHATSAPP_PHONE_NUMBER_ID` | WhatsApp → API Setup → Phone number ID, not the displayed phone number or Business Account ID |
-
-   Render generates `WHATSAPP_VERIFY_TOKEN`. Copy its value from Render into Meta's webhook verification form. `WHATSAPP_GRAPH_VERSION` defaults to `v23.0`; select a currently supported version matching your Meta API setup if necessary.
-
-4. Deploy and confirm the service's `/health` endpoint responds `ok`.
-
-## Connect Meta and send the first message
-
-1. Create or open a Meta developer app with the WhatsApp product/use case. Use Meta's provided test business number for the first demo.
-2. In WhatsApp → API Setup, add and verify your personal phone as a test recipient. Send the provided `hello_world` template using Meta's test interface to confirm number and token access.
-3. In WhatsApp webhook configuration, enter `https://YOUR-RENDER-HOST/webhook` as the callback URL and the exact `WHATSAPP_VERIFY_TOKEN` from Render as the verify token.
-4. Subscribe to the WhatsApp Business Account **messages** webhook field. If your account flow requires it, also subscribe the app to your WhatsApp Business Account.
-5. From your verified personal phone, reply to the test business number with a text message. The bot should respond: “Hello! Thanks for contacting us. Our WhatsApp assistant is connected. How can we help you?”
-
-The app replies only after a customer sends a message. It does not initiate customer outreach or require an outbound template for these immediate replies. Test numbers are restricted to verified test recipients. For real customers, complete Meta's production phone/business setup and replace the temporary token with a suitable system-user token and WhatsApp messaging permissions. Temporary tokens expire; update Render's environment and redeploy when replacing them. Never commit tokens or paste secrets into chat.
-
-## Local development
-
-Requires Node.js 24 and npm. Use the existing checkout; no additional Git worktree is needed.
+Use Node.js 24 and the existing checkout (no additional worktree needed).
 
 ```sh
 npm ci
-cp .env.example .env
-# Fill .env locally; it is ignored by Git.
 npm run typecheck
 npm test
 npm run dev
 ```
 
-The webhook must have a public HTTPS address for Meta to reach it; Render supplies that address. `/health` is a local/service health check, not proof of live Meta delivery.
+Open the app on port 3000. No credentials or `.env` file are required for web messaging. Choose **Business owner** or **Customer** in the header to try both sides. In customer view, selecting a conversation lets you act as that demo customer. Open a second browser tab with the other perspective to see messages update, usually within two seconds.
 
-## Scope and operational limits
+Features include searchable conversations, a needs-a-reply filter, new customer conversations, multiline messages, quick replies, per-perspective drafts, emoji insertion, responsive mobile navigation, conversation details and on-disk message history. Four sample conversations are created on first run. The check marks mean saved to this workspace, not read by the other person.
 
-- Private text messages only. Media and delivery-status events are acknowledged without a reply.
-- Signature validation requires the app secret, which differs from the webhook verify token and access token.
-- Sends time out after 8 seconds; API failures return HTTP 503 so Meta can retry. Logs omit credentials, message contents and phone numbers.
-- Deduplication uses a bounded, one-day in-memory cache for a single instance. Restarts, multiple instances, ambiguous network failures, and crashes can produce duplicate replies. Before production, add a durable queue and persistent idempotency handling; batched messages are currently processed inline.
-- The test suite mocks Meta's outbound endpoint. A real phone test after deployment is still required to verify Meta credentials, subscriptions, and end-to-end delivery.
+**This is a shared demo, not an authenticated customer portal.** Everyone who can open the app can view all demo conversations and act as either participant. Do not use real customer information. Add authentication, authorization and rate limiting before a real customer launch. Web messaging does not send any WhatsApp messages.
 
-If verification returns 403, check the verify token. If POSTs return 401, check the app secret. If sends fail, check Render logs for the HTTP status, then validate the access token, phone number ID, app permissions and test recipient in Meta's API Setup. Do not disable signature verification to troubleshoot.
+## Deploy on Render
+
+1. In Render choose **New → Blueprint** and connect `sidevesh/dhanavitree`.
+2. Apply `render.yaml`. It creates a **paid Starter** web service and a 1 GB persistent disk; review current Render pricing first. No Meta secrets are requested.
+3. Open the Render service URL. `/health` returns JSON with `status: "ok"` and indicates whether WhatsApp is enabled.
+
+If a service was already created from the previous bot configuration, sync the updated Blueprint, or add a persistent disk mounted at `/var/data` and set `DATA_DIR=/var/data` manually. Old WhatsApp variables may be removed to disable that integration.
+
+Local data lives in ignored `data/conversations.json`. Render stores it on the mounted disk so it survives restarts and deployments. Run a single instance with this file-based store; a multi-instance production app needs a database. Back up the data before deleting a service or disk. The provided tests create independent temporary data and do not modify the app's conversations.
+
+## Optional WhatsApp integration
+
+To enable the existing private-message webhook, set **all five** variables in `.env` locally or in Render's environment settings:
+
+| Variable | Meaning |
+| --- | --- |
+| `WHATSAPP_VERIFY_TOKEN` | A random secret of your choosing; also enter it in Meta's webhook verification form |
+| `META_APP_SECRET` | Meta app settings → Basic → App secret |
+| `WHATSAPP_ACCESS_TOKEN` | WhatsApp → API Setup access token |
+| `WHATSAPP_PHONE_NUMBER_ID` | WhatsApp phone number ID, not the phone number |
+| `WHATSAPP_GRAPH_VERSION` | A supported API version, for example `v23.0`; check your Meta API setup |
+
+Restart the service, configure `https://YOUR-RENDER-HOST/webhook` in Meta and subscribe to **messages**. With Meta's test number, verify your personal number as a test recipient first. Temporary tokens expire; use appropriate production credentials for a real launch. Never commit credentials or send secrets through chat.
+
+When enabled, this standalone webhook validates Meta's signature and sends a fixed greeting for incoming private text messages. It is **not connected to the web inbox yet**. It ignores media and status events. Its deduplication is bounded and in memory, so restarts and ambiguous send failures can produce duplicate replies. Add durable delivery handling before production. With missing configuration the web app still works and `/webhook` returns 503.
+
+## Validation
+
+`npm run typecheck` checks the server and tests. `npm test` exercises Meta signature checks, replies and retries using a mocked API, plus web chat creation, both message directions, validation, cross-origin protection and persistence across server restarts. A live Meta phone test is required separately if you enable WhatsApp.

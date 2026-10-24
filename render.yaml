@@ -7,16 +7,12 @@ services:
     startCommand: npm start
     healthCheckPath: /health
     autoDeployTrigger: commit
+    disk:
+      name: conversations
+      mountPath: /var/data
+      sizeGB: 1
     envVars:
       - key: NODE_VERSION
         value: 24.19.0
-      - key: WHATSAPP_VERIFY_TOKEN
-        generateValue: true
-      - key: META_APP_SECRET
-        sync: false
-      - key: WHATSAPP_ACCESS_TOKEN
-        sync: false
-      - key: WHATSAPP_PHONE_NUMBER_ID
-        sync: false
-      - key: WHATSAPP_GRAPH_VERSION
-        value: v23.0
+      - key: DATA_DIR
+        value: /var/data

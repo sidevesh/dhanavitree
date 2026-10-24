@@ -1,0 +1,46 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { once } from 'node:events';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createWebApp } from '../src/web.ts';
+
+test('web chat works without WhatsApp and persists both sides across restarts', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'dhanavitree-test-'));
+  const file = join(directory, 'conversations.json');
+  let server = createWebApp(file);
+  const start = async () => {
+    server.listen(0, '127.0.0.1'); await once(server, 'listening');
+    const address = server.address(); assert(address && typeof address !== 'string');
+    return `http://127.0.0.1:${address.port}`;
+  };
+  const stop = () => new Promise<void>((resolve, reject) => { server.closeAllConnections(); server.close(error => error ? reject(error) : resolve()); });
+  t.after(async () => { if (server.listening) await stop(); rmSync(directory, { recursive: true, force: true }); });
+  let base = await start();
+  const post = (path: string, body: unknown) => fetch(base + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  assert.deepEqual(await (await fetch(base + '/health')).json(), { status: 'ok', whatsapp: false });
+  const html = await fetch(base); assert.match(await html.text(), /Viewing as/);
+  assert.match(html.headers.get('content-security-policy')!, /frame-ancestors 'none'/);
+  assert.equal((await fetch(base + '/app.js')).status, 200);
+  assert.equal((await fetch(base + '/style.css')).status, 200);
+  assert.equal((await fetch(base + '/webhook')).status, 503);
+  assert.equal((await fetch(base + '/nonexistent')).status, 404);
+  const seeded = await (await fetch(base + '/api/conversations')).json();
+  assert.equal(seeded.length, 4);
+  assert.equal((await post('/api/conversations', { name: '' })).status, 400);
+  const created = await post('/api/conversations', { name: 'Test Customer' });
+  assert.equal(created.status, 201);
+  const chat = await created.json();
+  assert.equal((await post(`/api/conversations/${chat.id}/messages`, { sender: 'customer', text: 'Is my order ready?' })).status, 201);
+  assert.equal((await post(`/api/conversations/${chat.id}/messages`, { sender: 'business', text: 'Yes, you can collect it today.' })).status, 201);
+  assert.equal((await post(`/api/conversations/${chat.id}/messages`, { sender: 'staff', text: 'No' })).status, 400);
+  assert.equal((await post(`/api/conversations/${chat.id}/messages`, { sender: 'business', text: '  ' })).status, 400);
+  assert.equal((await post(`/api/conversations/${chat.id}/messages`, { sender: 'business', text: 'x'.repeat(4001) })).status, 400);
+  assert.equal((await fetch(base + '/api/conversations', { method:'POST', headers: { Origin:'https://evil.example' }, body:'{}' })).status, 403);
+  await stop(); server = createWebApp(file); base = await start();
+  const restored = (await (await fetch(base + '/api/conversations')).json()).find((c: { id: string }) => c.id === chat.id);
+  assert.equal(restored.messages.length, 2);
+  assert.equal(restored.messages[0].sender, 'customer');
+  assert.equal(restored.messages[1].text, 'Yes, you can collect it today.');
+});
