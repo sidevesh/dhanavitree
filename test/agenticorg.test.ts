@@ -30,7 +30,7 @@ test('HITL chat answers are usable, profile edits need approval, and agent failu
   const post=(path:string,body:unknown,cookie='')=>fetch(base+path,{method:'POST',headers:{'Content-Type':'application/json',Cookie:cookie},body:JSON.stringify(body)});
   const signup=await post('/api/auth/signup',{name:'Kavya',email:'agent-owner@example.com',password:'correct-password'});assert.equal(signup.status,201);const cookie=signup.headers.get('set-cookie')!.split(';')[0];
   const me=async()=>await(await fetch(base+'/api/me',{headers:{Cookie:cookie}})).json();
-  for(const text of ['Mogra','Bouquets from ₹650','Bengaluru, shop@example.com','Monday–Saturday 9–7'])assert.equal((await post('/api/owner/chat',{text},cookie)).status,201);
+  for(const text of ['Mogra','Bouquets from ₹650','Bengaluru, shop@example.com','Monday–Saturday 9–7'])assert.equal((await post('/api/owner/setup',{text},cookie)).status,201);
   await post('/api/business',{published:true},cookie);
   await post('/api/owner/chat',{text:'Change our hours to Monday–Friday 10–6.'},cookie);
   let state=await me();assert.match(state.messages.at(-1).text,/prepared/);assert.equal(state.business.profile.hours,'Monday–Saturday 9–7');assert.equal(state.drafts[0].changes.hours,'Monday–Friday 10–6');assert.equal(state.commerce.runs[0].hitl,1);assert.equal(directCalls,1,'onboarding validation uses AgenticOrg; only catalog extraction calls the text model directly');

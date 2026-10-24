@@ -13,7 +13,7 @@ npm run dev
 
 Open port 3000. Create an account with email and password (at least 8 characters). **No email verification is required.** Passwords are salted and hashed with scrypt; login sessions use HTTP-only cookies. Password reset and email verification are not implemented yet.
 
-1. Talk to Dhanavi to provide your business name, offerings, location/Maps link, contact, hours and policies. You may skip a detail.
+1. Choose **Continue setup** on **Today** to provide your business name, offerings/prices, location/contact, and hours/policies. Setup has its own persistent conversation and AI checks each answer before advancing; you may skip a detail. Everyday Dhanavi chat and research use a separate conversation. Both use the same business profile.
 2. Open **Business**, review the information, choose a customer-link slug and publish.
 3. Share `/b/YOUR-SLUG`. Customers chat without signing up, using a separate guest session. They cannot access other visitors' conversations or your owner workspace.
 4. Unknown questions appear in **Today** and **Customers**. Answer them and optionally save the answer to **Memory**. The reply appears in the waiting customer's browser; saved facts are available for future questions.

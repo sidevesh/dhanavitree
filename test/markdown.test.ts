@@ -61,3 +61,26 @@ test('owner and public conversations format assistant replies while preserving u
     dom.window.close();
   }
 });
+
+test('Continue setup opens its own log and sends answers to setup without mixing chat drafts', async t => {
+  const dom=renderer();t.after(()=>dom.window.close());dom.window.document.body.innerHTML='<div id="app"></div><div id="toast" hidden></div>';
+  const state:any={owner:{name:'Owner',email:'owner@example.com'},business:{profile:{name:'Mogra'},step:1,published:false,slug:'mogra'},questions:[],threads:[],facts:[],drafts:[],creatives:[],commerce:{orders:[]},messages:[{sender:'assistant',text:'RESEARCH_ONLY **findings**',created:new Date().toISOString()}],setup:{complete:false,question:'What are your prices?',messages:[{sender:'assistant',text:'SETUP_ONLY What are your prices?',created:new Date().toISOString()}]}};
+  const posts:any[]=[];
+  dom.window.fetch=async(path:string,options:any)=>{
+    if(options?.body){posts.push({path,body:JSON.parse(options.body)});state.setup.messages.push({sender:'owner',text:JSON.parse(options.body).text,created:new Date().toISOString()});}
+    return{ok:true,json:async()=>options?.body?{ok:true}:state};
+  };
+  dom.window.eval(readFileSync(new URL('../public/app.js',import.meta.url),'utf8'));await new Promise(resolve=>setImmediate(resolve));
+  const doc=dom.window.document;
+  doc.querySelector('[data-view="assistant"]').click();doc.querySelector('#owner-input').value='CHAT_DRAFT';
+  doc.querySelector('[data-view="today"]').click();doc.querySelector('[data-go="setup"]').click();
+  assert.match(doc.querySelector('#owner-messages').textContent,/SETUP_ONLY/);assert.doesNotMatch(doc.querySelector('#owner-messages').textContent,/RESEARCH_ONLY/);
+  assert.equal(doc.querySelector('#setup-input').value,'');assert(doc.querySelector('#skip-step'));
+  doc.querySelector('#setup-input').value='Bouquets ₹650';doc.querySelector('#owner-compose').dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true}));
+  await new Promise(resolve=>setImmediate(resolve));assert.equal(posts[0].path,'/api/owner/setup');assert.deepEqual(posts[0].body,{text:'Bouquets ₹650'});
+  doc.querySelector('[data-view="assistant"]').click();assert.match(doc.querySelector('#owner-messages').textContent,/RESEARCH_ONLY/);assert.doesNotMatch(doc.querySelector('#owner-messages').textContent,/SETUP_ONLY/);
+  assert.equal(doc.querySelector('#owner-input').value,'CHAT_DRAFT');assert.equal(doc.querySelector('#skip-step'),null);
+  state.business.step=4;state.setup.complete=true;
+  doc.querySelector('[data-view="today"]').click();assert.equal(doc.querySelector('[data-go="setup"]'),null);
+  dom.window.close();
+});
