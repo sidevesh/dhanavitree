@@ -1,0 +1,91 @@
+{
+  "id": "barfae",
+  "name": "Barfae Foods – Cafe & Experience",
+  "owner_name": "the Barfae team",
+  "vertical": "cafe_party",
+  "city": "Sirsa, Katihar",
+  "advance_pct": 25,
+  "max_auto_discount_pct": 5,
+  "capacity": 40,
+  "blackout_dates": [],
+  "packages": [
+    {
+      "id": "snacks-shakes",
+      "name": "Snacks & Shakes",
+      "price_per_plate": 249,
+      "floor_per_plate": 225,
+      "min_guests": 10,
+      "includes": "Per person: 1 snack (Plain/Peri-peri French Fries, Onion or Paneer Pakode, Cheese Balls, Crispy Corn) + 1 sandwich or burger (Veg/Paneer Grilled Sandwich, Veg/Paneer Burger) + 1 shake or mocktail (Mango/Chocolate Shake, Cold Coffee, Virgin Mojito, Blue Lagoon)"
+    },
+    {
+      "id": "kids-birthday",
+      "name": "Kids Birthday Pack",
+      "price_per_plate": 229,
+      "floor_per_plate": 205,
+      "min_guests": 10,
+      "includes": "Per child: Masala/Cheese Maggi or Red/White Sauce Pasta + French Fries + Mini Pancakes + 1 ice cream scoop + 1 shake (Mango, Chocolate or Banana)"
+    },
+    {
+      "id": "veg-party-meal",
+      "name": "Veg Party Meal",
+      "price_per_plate": 349,
+      "floor_per_plate": 315,
+      "min_guests": 15,
+      "includes": "Per person: 2 starters (Paneer Tikka, Mushroom Tikka, Crispy Corn, Cheese Balls, Manchurian) + 1 main (Kadhai Paneer, Butter Paneer Masala, Veg Korma, Mushroom Masala) + Dal Tadka + Jeera Rice + Roti/Laccha Paratha + 1 dessert (Gud Pitthi, Ice Cream, Fruit Cream, Custard) + 1 mocktail"
+    },
+    {
+      "id": "nonveg-party-meal",
+      "name": "Non-Veg Party Meal",
+      "price_per_plate": 449,
+      "floor_per_plate": 405,
+      "min_guests": 15,
+      "includes": "Per person: 1 chicken starter (Barbecue Chicken Wings, Crispy Chicken, Chicken 65, Chicken Tikka) + 1 veg starter (Paneer Tikka, Crispy Corn) + Chicken Fried Rice or Noodles + Kadhai Paneer with Roti/Laccha Paratha + 1 dessert + 1 mocktail"
+    },
+    {
+      "id": "fasting-special",
+      "name": "Fasting (Vrat) Special",
+      "price_per_plate": 199,
+      "floor_per_plate": 180,
+      "min_guests": 10,
+      "includes": "Per person: Fasting Meal + Sabudana or Makhana Kheer + Singhara Aata Halwa + Cut Fruits. For Mondays, Navratri and other fasting days."
+    }
+  ],
+  "party_questions": [
+    "Is it dine-in at the cafe, takeaway, or delivery?",
+    "Veg, non-veg or mixed group? Anyone fasting or needing Jain / no onion-garlic food?",
+    "Which starters and mains would you like from the package options?",
+    "Any drinks preference – shakes, mocktails, lassi, chai/coffee?",
+    "Dessert – ice cream, Gud Pitthi, Death By Chocolate, cheesecake? Will you bring your own cake?",
+    "Any decoration, music or special arrangement needed?"
+  ],
+  "menu": {
+    "Chicken Starters": "Barbecue Chicken Wings ₹249; Crispy Chicken ₹199; Creamy Butter Garlic Chicken Steak ₹249; Classic Chicken 65 ₹249",
+    "Tandoor": "Paneer Tikka ₹149; Paneer Stick ₹79; Mushroom Stick ₹79; Mushroom Tikka ₹149; Grilled Pineapple Stick ₹69; Grilled Pineapple ₹129; Chicken Stick ₹79; Chicken Tikka ₹179",
+    "North Indian Starters": "Cheese Balls ₹199; Crispy Corn ₹149; Crispy Baby Corn ₹179; Onion Rings ₹149",
+    "North Indian": "Wheat Plain Roti ₹49; Ragi Roti ₹79; Multigrain Plain Roti ₹69; Multigrain Laccha Paratha ₹79; Wheat Laccha Paratha ₹99; Multigrain Plain Paratha ₹149; Wheat Plain Paratha ₹129; Plain Rice ₹179; Jeera Rice ₹149; Dal Tadka ₹149; Dal Fry ₹149; Rajma ₹179; Chole ₹229; Veg Korma ₹59; Kadhai Paneer ₹199; Mushroom Masala ₹179; Butter Paneer Masala ₹69",
+    "Meals": "Veg Korma Roti Meal ₹149; Veg Korma Paratha Meal ₹179; Kadhai Paneer Roti Meal ₹179; Kadhai Paneer Paratha Meal ₹199; Rajma Rice ₹129; Chole Rice ₹129",
+    "Fasting (Mondays, special days)": "Sabudana Kheer ₹99; Makhana Kheer ₹99; Singhara Aata Halwa ₹99; Fasting Meal ₹129; Cut Fruits ₹99",
+    "Combos": "Cold Coffee Matcha Combo ₹159; Chicken Starter Platter ₹259; Chai Fry Combo-1 ₹179; Chef's Surprise ₹149; Chai Fry Combo-2 ₹179",
+    "Salad": "Sprout Salad ₹179; Fruit Salad ₹149; Russian Salad ₹149; Caesar Salad ₹179; Broccoli Salad ₹149",
+    "Pancakes & Waffles": "Classic Pancake ₹149; Nutella Pancake ₹199; Classic Waffle ₹149; Nutella Waffle ₹199; Nutella Fruit Pancake ₹249; Mini Pancakes Single ₹79; Mini Pancakes Double ₹99; Classic Wheat Waffles ₹149; Nutella Wheat Waffles ₹199",
+    "Dessert": "Ice Cream Single Scoop ₹79; Ice Cream Double Scoop ₹129; Death By Chocolate ₹179; Party Saptah ₹129; Gud Pitthi ₹179; Cheesecake ₹199; Fruit Cream ₹129; Custard ₹129",
+    "Soup": "Chicken Soup ₹109; Hot & Sour Soup ₹99; Tomato Soup ₹99",
+    "Snacks": "Plain Salted French Fries ₹79; Peri-peri French Fries ₹99; Potato Twister ₹99; Onion Pakode ₹99; Special French Fries ₹129; Paneer Pakode ₹149",
+    "Burger": "Veg Burger ₹149; Egg Burger ₹179; Paneer Burger ₹179; Barfae Special Burger ₹249; Veg Cheese Burger ₹179; Egg Cheese Burger ₹199; Paneer Cheese Burger ₹199",
+    "Sandwich": "Veg Grilled ₹99; Paneer Grilled ₹129; Veg Cheese Grilled ₹149; Paneer Cheese Grilled ₹179; Veg Corn ₹129; Cheese Corn ₹149",
+    "Crepes": "Nutella Fruit Crepes ₹179; Peri-peri Paneer Crepes ₹179",
+    "Pasta": "White Sauce ₹179; Red Sauce ₹149; Desi Masala ₹129; Aglio Olio ₹199; Fresh Tomato Mushroom ₹159; Cheese Corn Macaroni ₹169; Spaghetti ₹179; Pesto ₹179",
+    "Maggi": "Masala ₹99; Plain ₹79; Cheese Masala ₹129; Cheese Corn ₹129; Egg ₹119; Tomato ₹109; Soya ₹109; Chicken ₹149",
+    "Parathas": "Aloo ₹99; Gobhi ₹99; Sattu ₹129; Paneer ₹149; Cheese ₹179; Aloo Gobhi ₹99; Egg ₹129",
+    "Bread & Omelette": "French Toast ₹129; Bread Omelette ₹129; Masala Omelette ₹149; Masala Cheese Omelette ₹159; Plain Omelette ₹99; Plain/Garlic/Cheese/Malai Toast ₹45–69; Bun Muska ₹45; Bun Cream ₹55",
+    "Chinese": "Veg Fried Rice/Noodles ₹149; with Manchurian ₹199; Manchurian ₹149; Paneer Chilli ₹179; Egg Fried Rice/Noodles ₹169; Chicken Fried Rice/Noodles ₹199; Paneer Fried Rice/Noodles ₹179; Mushroom Fried Rice/Noodles ₹169; Paneer Mushroom Chilli ₹179",
+    "Pav": "Pav Bhaji ₹109; Extra Pav ₹20; Pav Paneer Bhurji ₹129; Pav Egg Bhurji ₹129; Pav Chicken Bhurji ₹149; Pav Burger Egg ₹149 / Veg ₹129 / Chicken ₹159",
+    "Juices & Shakes": "Pomegranate ₹149; Black Grapes ₹149; Green Grapes ₹129; Watermelon ₹99; Mosambi ₹99; Mango Shake ₹149; Banana Shake ₹129; Apple Shake ₹149; Anjeer Shake ₹149",
+    "Mocktails": "Kokum, Blue Lagoon, Peace Ice Tea, Kala Khatta, Khus, Pan Shot ₹60 each; Blueberry ₹99",
+    "Cold Beverages": "Chocolate Shake ₹149; Cold Coffee ₹169; Classic Iced Tea ₹99; Mint Lime ₹79; Sweet Lime ₹49; Iced Lemon Honey ₹129; Virgin Mojito ₹149; Cold Green Matcha Tea ₹179; Lemonade Iced Tea ₹179; Orange Iced Tea ₹119; Orange Lime ₹129; Red Bull ₹109; Masala Cold Drink ₹125",
+    "Lassi": "Kulhad ₹119; Sweet ₹99; Fruit ₹149; Rose ₹109; Dry Fruit ₹129; Strawberry ₹129; Mango ₹129",
+    "Chai & Coffee": "Barfae Chai / Masala / Elaichi / Adrak ₹49; Kesar Chai ₹79; Lemongrass Honey Tea ₹99; Hot Coffee ₹79; Latte ₹129; Espresso ₹99; Cafe Mocha ₹129; Cappuccino ₹129",
+    "Special": "Honey Parfait ₹129; Redbull Apple Punch ₹159"
+  },
+  "faq": "Cafe in Sirsa, Katihar. Items marked * on the menu are subject to availability. Fasting menu every Monday and on special days. Contact/WhatsApp: 9353756521, Instagram @barfaefoods. Advance holds the date; balance payable on the day."
+}

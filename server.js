@@ -9,7 +9,14 @@ import { createPaymentLink, getPaymentLinkStatus, pineLabsConfigured } from "./l
 import { agenticOrgConfigured, runDealDesk } from "./lib/agenticorg.js";
 import { makeChat, chatProvider } from "./lib/chat.js";
 
-const biz = JSON.parse(fs.readFileSync("business.json", "utf8"));
+// One JSON file per business in businesses/; each gets its own chat link (/?b=<id>) and owner desk.
+const businesses = Object.fromEntries(
+  fs.readdirSync("businesses").filter((f) => f.endsWith(".json"))
+    .map((f) => JSON.parse(fs.readFileSync(`businesses/${f}`, "utf8"))).map((b) => [b.id, b]),
+);
+const DEFAULT_BIZ = process.env.DEFAULT_BUSINESS && businesses[process.env.DEFAULT_BUSINESS] ? process.env.DEFAULT_BUSINESS : Object.keys(businesses)[0];
+const bizById = (id) => businesses[id] || businesses[DEFAULT_BIZ];
+const bizOf = (lead) => bizById(lead.business_id);
 const PORT = process.env.PORT || 3000;
 const PUBLIC_URL = (process.env.PUBLIC_URL || `http://localhost:${PORT}`).replace(/\/$/, "");
 const OWNER_KEY = process.env.OWNER_KEY || "owner123";
@@ -20,6 +27,7 @@ app.use(express.static("public"));
 
 // ---------- Payment links ----------
 async function issuePaymentLink(lead, quote) {
+  const biz = bizOf(lead);
   const link = await createPaymentLink({ quote, lead, businessName: biz.name, publicUrl: PUBLIC_URL });
   updateQuote(quote, { status: "LINK_SENT", payment_link_id: link.payment_link_id, payment_link_url: link.payment_link_url, test_mode: link.test_mode });
   updateLead(lead, { stage: "LINK_SENT" });
@@ -30,6 +38,7 @@ async function issuePaymentLink(lead, quote) {
 function markPaid(quote, source) {
   if (quote.status === "PAID") return;
   const lead = getLead(quote.lead_id);
+  const biz = bizOf(lead);
   updateQuote(quote, { status: "PAID", paid_at: new Date().toISOString() });
   updateLead(lead, { stage: "CONFIRMED" });
   logEvent("system", "payment_captured", lead.id, { quote_id: quote.id, advance: quote.advance, source, test_mode: quote.test_mode });
@@ -40,6 +49,7 @@ function markPaid(quote, source) {
 
 // ---------- Deal desk (AgenticOrg) ----------
 async function onNeedsApproval(lead, quote) {
+  const biz = bizOf(lead);
   logEvent("system", "approval_requested", lead.id, { quote_id: quote.id, requested_per_plate: quote.per_plate, list: quote.list_per_plate });
   const run = await runDealDesk("negotiation_review", {
     business: biz.name,
@@ -60,18 +70,19 @@ async function onNeedsApproval(lead, quote) {
 }
 
 // ---------- Customer API ----------
-const chat = makeChat({ biz, publicUrl: PUBLIC_URL, onNeedsApproval, issuePaymentLink });
+const chats = Object.fromEntries(Object.values(businesses).map((biz) => [biz.id, makeChat({ biz, publicUrl: PUBLIC_URL, onNeedsApproval, issuePaymentLink })]));
 
 app.post("/api/chat", async (req, res) => {
-  const { lead_id, message } = req.body || {};
+  const { lead_id, message, business_id } = req.body || {};
   if (!message || !String(message).trim()) return res.status(400).json({ error: "message required" });
   let lead = lead_id && getLead(lead_id);
+  if (lead && business_id && lead.business_id !== bizById(business_id).id) lead = null;
   if (!lead) {
-    lead = createLead(biz.id);
+    lead = createLead(bizById(business_id).id);
     logEvent("customer", "chat_started", lead.id);
   }
   try {
-    await chat.reply(lead, String(message).slice(0, 2000));
+    await chats[bizOf(lead).id].reply(lead, String(message).slice(0, 2000));
     res.json({ lead_id: lead.id, messages: lead.messages });
   } catch (err) {
     console.error(err);
@@ -85,7 +96,7 @@ app.get("/api/lead/:id", (req, res) => {
   res.json({ lead_id: lead.id, stage: lead.stage, messages: lead.messages });
 });
 
-app.get("/api/business", (_req, res) => res.json({ name: biz.name, city: biz.city }));
+app.get("/api/business", (req, res) => { const biz = bizById(req.query.b); res.json({ id: biz.id, name: biz.name, city: biz.city }); });
 
 // ---------- Owner API ----------
 function ownerOnly(req, res, next) {
@@ -93,17 +104,22 @@ function ownerOnly(req, res, next) {
   next();
 }
 
-app.get("/api/owner/state", ownerOnly, (_req, res) => {
+app.get("/api/owner/state", ownerOnly, (req, res) => {
+  const biz = bizById(req.query.b);
+  const leads = allLeads().filter((l) => (l.business_id || DEFAULT_BIZ) === biz.id);
+  const leadIds = new Set(leads.map((l) => l.id));
+  const quotes = allQuotes().filter((q) => leadIds.has(q.lead_id));
   res.json({
     business: biz,
     integrations: { pine_labs: pineLabsConfigured(), agenticorg: agenticOrgConfigured() },
-    leads: allLeads().sort((a, b) => b.updated_at.localeCompare(a.updated_at)),
-    quotes: allQuotes(),
-    events: allEvents().slice(-200).reverse(),
+    businesses: Object.values(businesses).map((b) => ({ id: b.id, name: b.name })),
+    leads: leads.sort((a, b) => b.updated_at.localeCompare(a.updated_at)),
+    quotes,
+    events: allEvents().filter((e) => !e.lead_id || leadIds.has(e.lead_id)).slice(-200).reverse(),
     stats: {
-      users: allLeads().filter((l) => l.fields.phone).length,
-      quotes: allQuotes().length,
-      paid: allQuotes().filter((q) => q.status === "PAID").length,
+      users: leads.filter((l) => l.fields.phone).length,
+      quotes: quotes.length,
+      paid: quotes.filter((q) => q.status === "PAID").length,
     },
   });
 });
@@ -113,6 +129,7 @@ app.post("/api/owner/decide", ownerOnly, async (req, res) => {
   const quote = getQuote(quote_id);
   if (!quote || quote.status !== "PENDING_APPROVAL") return res.status(400).json({ error: "quote not pending" });
   const lead = getLead(quote.lead_id);
+  const biz = bizOf(lead);
 
   if (action === "reject") {
     updateQuote(quote, { status: "REJECTED" });
@@ -146,6 +163,7 @@ app.post("/api/owner/decide", ownerOnly, async (req, res) => {
 app.post("/api/owner/followup", ownerOnly, async (req, res) => {
   const lead = getLead(req.body?.lead_id);
   if (!lead) return res.status(404).json({ error: "not found" });
+  const biz = bizOf(lead);
   const quote = lead.current_quote && getQuote(lead.current_quote);
   const run = await runDealDesk("follow_up", {
     business: biz.name,
@@ -200,13 +218,14 @@ setInterval(async () => {
 
 app.get("/paid", (req, res) => {
   const lead = getQuote(req.query.q) && getLead(getQuote(req.query.q).lead_id);
-  res.redirect(lead ? `/?lead=${lead.id}` : "/");
+  res.redirect(lead ? `/?b=${bizOf(lead).id}&lead=${lead.id}` : "/");
 });
 
 // TEST-mode payment page, used only when Pine Labs credentials are missing.
 app.get("/test-pay/:quoteId", (req, res) => {
   const quote = getQuote(req.params.quoteId);
   if (!quote || !quote.test_mode) return res.status(404).send("Not found");
+  const biz = bizOf(getLead(quote.lead_id));
   res.send(`<!doctype html><meta name=viewport content="width=device-width,initial-scale=1">
 <body style="font-family:system-ui;max-width:420px;margin:40px auto;padding:0 16px">
 <p style="background:#fff3cd;padding:8px;border-radius:6px"><b>TEST MODE</b>: Pine Labs credentials not set. No real money moves.</p>
@@ -217,12 +236,12 @@ app.post("/test-pay/:quoteId", (req, res) => {
   const quote = getQuote(req.params.quoteId);
   if (!quote || !quote.test_mode) return res.status(404).send("Not found");
   markPaid(quote, "test_mode");
-  res.redirect(`/?lead=${quote.lead_id}`);
+  res.redirect(`/?b=${bizOf(getLead(quote.lead_id)).id}&lead=${quote.lead_id}`);
 });
 
 app.listen(PORT, () => {
   console.log(`Party Closer running on ${PUBLIC_URL}`);
-  console.log(`Owner dashboard: ${PUBLIC_URL}/owner.html?key=${OWNER_KEY}`);
+  for (const b of Object.values(businesses)) console.log(`[${b.id}] chat: ${PUBLIC_URL}/?b=${b.id}  owner: ${PUBLIC_URL}/owner.html?b=${b.id}&key=${OWNER_KEY}`);
   console.log(`Chat model: ${chatProvider()}`);
   console.log(`Pine Labs: ${pineLabsConfigured() ? "configured" : "TEST MODE"} | AgenticOrg: ${agenticOrgConfigured() ? "configured" : "NOT configured"}`);
 });

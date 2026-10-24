@@ -40,10 +40,12 @@
 <script>
 const log = document.getElementById("log"), q = document.getElementById("q"), send = document.getElementById("send");
 const params = new URLSearchParams(location.search);
-let leadId = params.get("lead") || localStorage.getItem("lead_id") || null;
+const bizId = params.get("b") || "";
+const LS = `lead_id_${bizId || "default"}`;
+let leadId = params.get("lead") || localStorage.getItem(LS) || null;
 let rendered = 0;
 
-fetch("/api/business").then(r => r.json()).then(b => { document.getElementById("title").textContent = `${b.name} · Party booking`; document.title = `${b.name} · Book a Party`; });
+fetch(`/api/business?b=${encodeURIComponent(bizId)}`).then(r => r.json()).then(b => { document.getElementById("title").textContent = `${b.name} · Party booking`; document.title = `${b.name} · Book a Party`; });
 
 function esc(s) { return s.replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
 function linkify(s) { return esc(s).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>'); }
@@ -72,9 +74,9 @@ async function sendMsg(text) {
   const mine = document.createElement("div"); mine.className = "msg user"; mine.textContent = text; log.appendChild(mine);
   const typing = document.createElement("div"); typing.className = "typing"; typing.textContent = "typing…"; log.appendChild(typing);
   try {
-    const r = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lead_id: leadId, message: text }) });
+    const r = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lead_id: leadId, message: text, business_id: bizId || undefined }) });
     const data = await r.json();
-    if (data.lead_id) { leadId = data.lead_id; localStorage.setItem("lead_id", leadId); }
+    if (data.lead_id) { leadId = data.lead_id; localStorage.setItem(LS, leadId); }
     typing.remove();
     if (data.messages) { log.innerHTML = ""; rendered = 0; render(data.messages); }
     else { const d = document.createElement("div"); d.className = "msg assistant"; d.textContent = data.error || "Something went wrong"; log.appendChild(d); }

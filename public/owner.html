@@ -32,6 +32,7 @@
 <main>
   <h1 id="title">Owner Desk</h1>
   <div class="muted">Approve discounts, watch every enquiry, follow up on quiet leads. Auto-refreshes every 5s.</div>
+  <div id="switcher" class="muted" style="margin-top:6px"></div>
   <div id="integrations" style="margin-top:8px"></div>
   <div class="stats" id="stats"></div>
   <h2>Waiting for your approval</h2><div id="pending"><p class="muted">Nothing pending.</p></div>
@@ -39,9 +40,12 @@
   <h2>Activity log (proof trail) <a class="muted" id="export" href="#">· export JSON</a></h2><div class="events" id="events"></div>
 </main>
 <script>
-const key = new URLSearchParams(location.search).get("key") || prompt("Owner key");
+const qs = new URLSearchParams(location.search);
+const key = qs.get("key") || prompt("Owner key");
+const bizId = qs.get("b") || "";
 const H = { "Content-Type": "application/json", "x-owner-key": key };
 document.getElementById("export").href = `/api/owner/export?key=${encodeURIComponent(key)}`;
+const bq = `b=${encodeURIComponent(bizId)}`;
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
 const inr = n => "₹" + Number(n || 0).toLocaleString("en-IN");
 let drafts = {};
@@ -57,10 +61,13 @@ function recText(dd) {
 }
 
 async function load() {
-  const r = await fetch("/api/owner/state", { headers: H });
+  const r = await fetch(`/api/owner/state?${bq}`, { headers: H });
   if (!r.ok) { document.body.innerHTML = "<main><h1>Wrong owner key</h1></main>"; return; }
   const s = await r.json();
   document.getElementById("title").textContent = `${s.business.name} · Owner Desk`;
+  document.getElementById("switcher").innerHTML = s.businesses.length > 1 ? "Switch: " + s.businesses.map(b =>
+    b.id === s.business.id ? `<b>${esc(b.name)}</b>` : `<a href="?b=${b.id}&key=${encodeURIComponent(key)}">${esc(b.name)}</a>`).join(" · ") +
+    ` · <a href="/?b=${s.business.id}" target="_blank">open customer chat ↗</a>` : "";
   document.getElementById("integrations").innerHTML =
     (s.integrations.pine_labs ? "" : '<span class="warn">Pine Labs: TEST MODE</span>') +
     (s.integrations.agenticorg ? "" : '<span class="warn">AgenticOrg: not configured</span>');
