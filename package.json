@@ -10,7 +10,8 @@
     "start": "node --env-file-if-exists=.env src/server.ts",
     "dev": "node --watch --env-file-if-exists=.env src/server.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node --test test/*.test.ts"
+    "test": "node --test test/*.test.ts",
+    "design:export": "node scripts/export-design.mjs"
   },
   "devDependencies": {
     "@types/node": "24.19.2",

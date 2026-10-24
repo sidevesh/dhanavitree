@@ -49,7 +49,7 @@ export function createWebApp(dataFile: string, whatsapp?: Config) {
         const item: Message = { id: randomUUID(), sender: body.sender, text: body.text.trim(), at: new Date().toISOString() };
         chat.messages.push(item); save(); return json(201, item);
       }
-      const files: Record<string, [string, string]> = { '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/style.css': ['style.css', 'text/css'] };
+      const files: Record<string, [string, string]> = { '/': ['index.html', 'text/html'], '/app.js': ['app.js', 'text/javascript'], '/style.css': ['style.css', 'text/css'], '/design': ['design.html', 'text/html'], '/design.css': ['design.css', 'text/css'], '/design.js': ['design.js', 'text/javascript'] };
       const file = files[url.pathname];
       if (req.method !== 'GET' || !file) return json(404, { error: 'Not found' });
       res.writeHead(200, { 'Content-Type': `${file[1]}; charset=utf-8`, 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'" });

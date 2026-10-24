@@ -48,3 +48,9 @@ When enabled, this standalone webhook validates Meta's signature and sends a fix
 ## Validation
 
 `npm run typecheck` checks the server and tests. `npm test` exercises Meta signature checks, replies and retries using a mocked API, plus web chat creation, both message directions, validation, cross-origin protection and persistence across server restarts. A live Meta phone test is required separately if you enable WhatsApp.
+
+## Product and UX direction
+
+Open `/design` for the Dhanavi product design brief: branding, interactive owner/customer mockups, conversational onboarding, durable business memory, escalations, growth/creative workflows, model-provider routing, reference products and an implementation sequence. This is a proposal, not implemented authentication or AI functionality.
+
+A self-contained copy is saved at `docs/dhanavi-product-design.html`. Open it in a browser or share it directly; it uses no external assets. Run `npm run design:export` after editing `public/design.html`, `public/design.css` or `public/design.js` to refresh that copy. The document includes Print / Save PDF, screen tabs and local-only sample interactions. Reference sites blocked automated inspection, which is disclosed in the reference library.
