@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 const provider = () => (process.env.LLM_PROVIDER || '').trim().toLowerCase();
 // OpenAI defaults, and protection against leftover Muse model names when switching providers.
 if (provider() === 'openai') {
-  process.env.LLM_BASE_URL ||= 'https://api.openai.com/v1';
+  if (!process.env.LLM_BASE_URL || /api\.meta\.ai/i.test(process.env.LLM_BASE_URL)) process.env.LLM_BASE_URL = 'https://api.openai.com/v1';
   process.env.LLM_MODEL ||= 'gpt-4.1';
   for (const key of ['LLM_MODEL', 'OWNER_MODEL', 'CUSTOMER_MODEL', 'VISION_MODEL', 'IMAGE_MODEL']) {
     if (/^muse-/i.test(process.env[key] || '')) { console.warn(`Ignoring ${key}=${process.env[key]} because LLM_PROVIDER is openai`); key === 'LLM_MODEL' ? process.env[key] = 'gpt-4.1' : delete process.env[key]; }
