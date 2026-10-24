@@ -46,6 +46,41 @@ Restart/redeploy after changing environment variables. The app sends OpenAI Chat
 
 **With an LLM:** the owner can have free-form business conversations and receive suggestions; proposed profile changes require confirmation. Customer responses use that business's profile and saved facts, and missing answers are escalated. Model hallucination remains possible; review important policies. Payment amounts are calculated from the structured catalog, never from model-generated prices.
 
+## Voice conversations (Pipecat)
+
+Owners can do the setup conversation by voice, and customers can talk to the business assistant on `/b/YOUR-SLUG`. The **🎙 Talk** button appears beside **Send** once voice is configured. Spoken turns are saved as normal chat messages, so they appear in the typed chat and in **Customers**.
+
+How it works: [Pipecat](https://github.com/pipecat-ai/pipecat) runs as a separate Python service in `voice/`. It handles speech only:
+
+```
+browser mic ──WebRTC──▶ voice/bot.py: Silero VAD → OpenAI speech-to-text
+                                         │ transcript (one turn after a 1.2 s pause)
+                                         ▼
+                        Node /api/voice/turn → same owner setup / customer answer as typed chat
+                                         │ reply text
+browser speaker ◀─WebRTC── OpenAI text-to-speech
+```
+
+The browser sends its WebRTC offer to Node (`/api/voice/offer` for owners, `/api/public/SLUG/voice` for customers). Node checks the owner session or guest cookie, creates a one-hour voice token and forwards the offer to the voice service. The voice service listens on `127.0.0.1` and only accepts requests carrying `VOICE_INTERNAL_SECRET`. The setup steps, escalation to the owner and saved knowledge are not duplicated in Python.
+
+Run it locally (Python 3.10+):
+
+```sh
+npm run voice:setup        # once: creates voice/.venv and installs Pipecat
+# in .env: LLM_API_KEY (an OpenAI key), VOICE_URL=http://127.0.0.1:7860, VOICE_INTERNAL_SECRET=<openssl rand -hex 32>
+npm run dev                # terminal 1
+npm run voice              # terminal 2
+```
+
+Speech uses OpenAI `gpt-4o-transcribe` and `gpt-4o-mini-tts`. If `LLM_PROVIDER` is not OpenAI, set `VOICE_OPENAI_API_KEY`. Microphone access requires HTTPS or `localhost`. Limitations:
+
+- Speech recognition is set to English.
+- Wait for the bot to finish before answering. Speech that starts while it is talking is ignored as echo, and the bot does not stop when interrupted.
+- Each setup answer ends after a pause of about 1.2 seconds, set by `VOICE_TURN_PAUSE_SECS`. A longer pause in the middle of an answer sends the rest as the answer to the next question. Correct any mistakes in **Business** before publishing.
+- Saying "skip" skips a setup question.
+
+**Deployment:** `render.yaml` runs only the Node service. Voice needs the Python service running beside it, plus media connectivity between the browser and the voice service. WebRTC audio flows directly between them over UDP, not through Node. If the voice service is not reachable over UDP, as on typical PaaS web services, set `VOICE_ICE_SERVERS` to a TURN relay, or switch Pipecat to a hosted transport such as Daily.
+
 ## Files, search and creatives
 
 - Owners can upload JPG, PNG, WebP, PDF or plain text, up to 5 MB. Files are private to their owner. Text files create an offerings draft; vision models can extract offerings from images for review. PDFs are retained for download; PDF extraction is not implemented yet.

@@ -11,7 +11,9 @@
     "dev": "node --watch --env-file-if-exists=.env src/server.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --test test/*.test.ts",
-    "design:export": "node scripts/export-design.mjs"
+    "design:export": "node scripts/export-design.mjs",
+    "voice:setup": "python3 -m venv voice/.venv && voice/.venv/bin/pip install -r voice/requirements.txt",
+    "voice": "voice/.venv/bin/python voice/bot.py"
   },
   "devDependencies": {
     "@types/node": "24.19.2",
