@@ -64,7 +64,7 @@ test('Meta research uses Responses search with citations and shares image creden
     return Response.json({status:'completed',output:[{type:'reasoning'},{type:'web_search_call'},{type:'message',content:[{type:'output_text',text:'A cited finding.',annotations:[{type:'url_citation',title:'Official',url:'https://example.com/finding'}]}]}]});
   };
   assert.deepEqual(await complete('System',[{role:'user',content:'Hello'}]),{reply:'Hello'});
-  const result=await research('Local events');assert.match(result,/cited finding/);assert.match(result,/https:\/\/example.com\/finding/);
+  const result=await research('Local events',{profile:{name:'Mogra'},facts:[],catalog:[],recentOwnerMessages:[]});assert.match(result,/cited finding/);assert.match(result,/https:\/\/example.com\/finding/);
 });
 
 test('UPI fallback snapshots payee and requires explicit owner confirmation',async t=>{
