@@ -67,3 +67,13 @@ test('explicit skips work during outages and malformed extraction cannot silentl
   await assert.rejects(()=>extractOnboardingAnswer(0,'my website',{},[],async()=>({status:'answered',updates:{name:'https://shop.test'}})),/business name/);
   const defer=await extractOnboardingAnswer(1,'Can we do prices later?',{name:'Mogra'},[],async()=>({status:'skip',updates:{},reply:''}));assert.equal(defer.status,'skip');
 });
+
+test('a service-price answer is accepted even when the model only populates pricing',async()=>{
+  const result=await extractOnboardingAnswer(1,'AI chat integration: Rs 1000',{name:'Dhanavantree'},[],async()=>({status:'answered',updates:{pricing:'AI chat integration: ₹1000'}}));
+  assert.equal(result.status,'answered');assert.equal(result.updates.pricing,'AI chat integration: ₹1000');assert.equal(result.updates.offerings,undefined,'a duplicate field is optional, not a reason to reject valid pricing');
+  const followUp=await extractOnboardingAnswer(1,'Rs 1000',{name:'Dhanavantree',offerings:'AI chat integration'},[{sender:'owner',text:'We offer AI chat integration.'}],async()=>({status:'answered',updates:{pricing:'AI chat integration: ₹1000'}}));
+  assert.equal(followUp.status,'answered');
+  const incomplete=await extractOnboardingAnswer(1,'Rs 1000',{name:'Shop'},[],async()=>({status:'needs_clarification',updates:{pricing:'₹1000'}}));
+  assert.equal(incomplete.status,'needs_clarification');assert.equal(incomplete.reply,'Which product or service does that price apply to?');
+  assert(!incomplete.reply.includes('advance'));assert(!incomplete.reply.includes('menu'));
+});
