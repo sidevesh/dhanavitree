@@ -46,6 +46,48 @@ Restart/redeploy after changing environment variables. The app sends OpenAI Chat
 
 **With an LLM:** the owner can have free-form business conversations and receive suggestions; proposed profile changes require confirmation. Customer responses use that business's profile and saved facts, and missing answers are escalated. Model hallucination remains possible; review important policies. Payment amounts are calculated from the structured catalog, never from model-generated prices.
 
+## Voice conversations (Pipecat)
+
+Owners can do the setup conversation by voice, and customers can talk to the business assistant on `/b/YOUR-SLUG`. The **🎙 Talk** button appears beside **Send** once voice is configured. Spoken turns are saved as normal chat messages, so they appear in the typed chat and in **Customers**.
+
+How it works: [Pipecat](https://github.com/pipecat-ai/pipecat) runs as a separate Python service in `voice/`. It handles speech only:
+
+```
+browser mic ─WebSocket /api/voice/ws─▶ Node ─proxy─▶ voice/bot.py: Silero VAD → OpenAI speech-to-text
+                                                        │ transcript (one turn after a 1.2 s pause)
+                                                        ▼
+                                       Node /api/voice/turn → same owner setup / customer answer as typed chat
+                                                        │ reply text
+browser speaker ◀─────────── same WebSocket ◀────────── OpenAI text-to-speech
+```
+
+Audio is 16 kHz 16-bit mono PCM over a same-origin WebSocket (`public/voice-worklet.js` converts it), so calls work anywhere HTTPS does, with no UDP, STUN or TURN. Starting a call:
+
+1. The browser asks Node for a token (`/api/voice/start` for owners, `/api/public/SLUG/voice` for customers). Node checks the owner session or guest cookie first.
+2. The browser opens `/api/voice/ws?token=…`. Each token opens one call and must be used within a minute.
+3. Node proxies the WebSocket to the voice service with `VOICE_INTERNAL_SECRET`, without the visitor's cookies.
+
+The setup steps, escalation to the owner and saved knowledge are not duplicated in Python.
+
+Run it locally (Python 3.11+):
+
+```sh
+npm run voice:setup        # once: creates voice/.venv and installs Pipecat
+# in .env: LLM_API_KEY (an OpenAI key), VOICE_URL=http://127.0.0.1:7860, VOICE_INTERNAL_SECRET=<openssl rand -hex 32>
+npm run dev                # terminal 1
+npm run voice              # terminal 2
+```
+
+Speech uses OpenAI `gpt-4o-transcribe` and `gpt-4o-mini-tts`. If `LLM_PROVIDER` is not OpenAI, set `VOICE_OPENAI_API_KEY`. Microphone access requires HTTPS or `localhost`. Limitations:
+
+- Speech recognition is set to English.
+- Wait for the bot to finish before answering. Speech that starts while it is talking is ignored as echo, and the bot does not stop when interrupted.
+- Each setup answer ends after a pause of about 1.2 seconds, set by `VOICE_TURN_PAUSE_SECS`. A longer pause in the middle of an answer sends the rest as the answer to the next question. Correct any mistakes in **Business** before publishing.
+- Saying "skip" skips a setup question.
+- A deploy of either service ends calls in progress.
+
+**Render:** `render.yaml` adds a private service, `dhanavitree-voice` (Python, Starter plan, about 140 MB in use during a call). This service is billed separately from the web service. The Blueprint wires up both services: it generates `VOICE_INTERNAL_SECRET` once and shares it, and it sets `VOICE_URL` and `DHANAVI_URL` from each service's private address. After the first sync, set `VOICE_OPENAI_API_KEY` on `dhanavitree-voice` in the dashboard. Render does not prompt for it when a service is added to an existing Blueprint, and the voice service will not start without it. If production is not managed by the Blueprint, create the private service by hand with the same commands and variables, then set the same `VOICE_INTERNAL_SECRET` on the web service, and set its `VOICE_URL` to the voice service's **Internal Address** from the dashboard (host:port). The Talk button only appears while the voice service passes its health check.
+
 ## Files, search and creatives
 
 - Owners can upload JPG, PNG, WebP, PDF or plain text, up to 5 MB. Files are private to their owner. Text files create an offerings draft; vision models can extract offerings from images for review. PDFs are retained for download; PDF extraction is not implemented yet.
