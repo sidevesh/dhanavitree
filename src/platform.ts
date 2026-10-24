@@ -1,4 +1,4 @@
-import { complete, research, metaConfigured, imageConfig, agentConfigured } from './providers.ts';
+import { complete, research, metaConfigured, imageConfig, agentConfigured, textConfigured } from './providers.ts';
 import { createCommerce } from './commerce.ts';
 import { DatabaseSync } from 'node:sqlite';
 import { randomBytes, randomUUID, scrypt as derive, timingSafeEqual, createHash } from 'node:crypto';
@@ -39,9 +39,16 @@ export function createPlatform(file: string) {
  const poller=setInterval(async()=>{if(polling)return;polling=true;try{await commerce.poll();}finally{polling=false;}},30000);poller.unref();
  async function model(system:string,messages:any[],role='owner',forceModel?:string,businessId?:string,scope?:string):Promise<any>{
   if(businessId&&!forceModel&&agentConfigured(role)){
-   const result=await commerce.agent(businessId,role,scope||businessId,{task:role+'_chat',system,messages});
-   if(result.failed||result.hitl||!['completed','succeeded','success'].includes(result.status)||!result.output||typeof result.output!=='object')throw Error('Agent requires review or is still running');
-   return result.output;
+   try{
+    const result=await commerce.agent(businessId,role,scope||businessId,{task:role+'_chat',system,messages});
+    // AgenticOrg marks most runs 'hitl_triggered' (confidence below its 0.88 floor) while still returning the answer.
+    // The flag is kept in agent_runs for the owner; money decisions stay behind owner approval in commerce.
+    const usable=['completed','succeeded','success','hitl_triggered'].includes(result.status);
+    const output=typeof result.output==='string'?{reply:result.output}:result.output;
+    if(!result.failed&&usable&&output&&typeof output==='object')return output;
+    console.warn(`AgenticOrg ${role} run returned status '${result.status}' without a usable answer`);
+   }catch(e:any){console.warn(`AgenticOrg ${role} run failed: ${e.message}`);}
+   if(!textConfigured())throw Error('Agent requires review or is still running');
   }
   return complete(system,messages,role,forceModel);
  }

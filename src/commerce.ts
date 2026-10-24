@@ -33,7 +33,9 @@ export function createCommerce(db: DatabaseSync, message: (thread: string, text:
       const result = await runAgent(role, inputs);
       run('INSERT INTO agent_runs VALUES(?,?,?,?,?,?,?,?,?)', result.id, business, role, scope, result.runId, result.status, result.hitl ? 1 : 0, JSON.stringify(result.output ?? null).slice(0,20000), now());
       return result;
-    } catch {
+    } catch (e: any) {
+      // runAgent errors carry only the HTTP status, never provider bodies, so they are safe to log.
+      console.warn(`AgenticOrg ${role} agent failed: ${e?.message}`);
       run('INSERT INTO agent_runs VALUES(?,?,?,?,?,?,?,?,?)', randomUUID(), business, role, scope, null, 'failed', 0, null, now());
       throw Object.assign(Error('AgenticOrg is unavailable. Check the key, agent ID and execute permissions.'), { status: 502 });
     }
