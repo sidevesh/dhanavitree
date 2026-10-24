@@ -1,3 +1,4 @@
+import { onboardingFixture } from './fixtures/onboarding.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -16,7 +17,7 @@ test('HITL chat answers are usable, profile edits need approval, and agent failu
     if(req.url?.endsWith('/run')){
       assert.equal(req.headers.authorization,'Bearer fixture-agent-key');
       if(failure){res.writeHead(503,{'Content-Type':'application/json'});res.end('{"error":"temporary failure"}');return;}
-      const output=req.url.includes('customer-agent')?{answer:'Bouquets start at ₹650.',needsOwner:false}:{reply:'I prepared your new hours for review.',updates:{hours:'Monday–Friday 10–6'}};
+      const output=onboardingFixture(input.inputs.system,input.inputs.messages)|| (req.url.includes('customer-agent')?{answer:'Bouquets start at ₹650.',needsOwner:false}:{reply:'I prepared your new hours for review.',updates:{hours:'Monday–Friday 10–6'}});
       res.setHeader('Content-Type','application/json');res.end(JSON.stringify({run_id:'fixture-run',status:'hitl_triggered',hitl_trigger:true,output:empty?null:JSON.stringify(output)}));return;
     }
     assert.equal(req.url,'/v1/chat/completions');directCalls++;
@@ -32,7 +33,7 @@ test('HITL chat answers are usable, profile edits need approval, and agent failu
   for(const text of ['Mogra','Bouquets from ₹650','Bengaluru, shop@example.com','Monday–Saturday 9–7'])assert.equal((await post('/api/owner/chat',{text},cookie)).status,201);
   await post('/api/business',{published:true},cookie);
   await post('/api/owner/chat',{text:'Change our hours to Monday–Friday 10–6.'},cookie);
-  let state=await me();assert.match(state.messages.at(-1).text,/prepared/);assert.equal(state.business.profile.hours,'Monday–Saturday 9–7');assert.equal(state.drafts[0].changes.hours,'Monday–Friday 10–6');assert.equal(state.commerce.runs[0].hitl,1);assert.equal(directCalls,1,'only the onboarding price answer is sent to the text model (catalog extraction)');
+  let state=await me();assert.match(state.messages.at(-1).text,/prepared/);assert.equal(state.business.profile.hours,'Monday–Saturday 9–7');assert.equal(state.drafts[0].changes.hours,'Monday–Friday 10–6');assert.equal(state.commerce.runs[0].hitl,1);assert.equal(directCalls,1,'onboarding validation uses AgenticOrg; only catalog extraction calls the text model directly');
   const customer=await post('/api/public/'+state.business.slug+'/messages',{text:'How much is a bouquet?'});assert.equal(customer.status,201);const guest=customer.headers.get('set-cookie')!.split(';')[0];
   const chat=await(await fetch(base+'/api/public/'+state.business.slug,{headers:{Cookie:guest}})).json();assert.equal(chat.messages.at(-1).text,'Bouquets start at ₹650.');
   failure=true;await post('/api/owner/chat',{text:'Help me plan next week.'},cookie);state=await me();assert.match(state.messages.at(-1).text,/assistant is available/);assert.equal(directCalls,2);assert.equal(state.commerce.runs[0].status,'failed');

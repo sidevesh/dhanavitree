@@ -1,3 +1,4 @@
+import { onboardingFixture } from './fixtures/onboarding.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
@@ -19,9 +20,11 @@ test('accounts, isolation, conversational onboarding, customer handoff and durab
  assert.equal((await request('/api/me')).status,401);
  assert.equal((await request('/api/auth/login',{email:'kavya@example.com',password:'wrong-password'})).status,401);
  assert.equal((await request('/api/auth/signup',{email:'kavya@example.com',password:'correct-horse-123'})).status,409);
- const answers=['Mogra Studio','Classic bouquet from ₹650','Jayanagar, Bengaluru. Call 9000000000','Mon–Sat, 9 am–7 pm, Asia/Kolkata. Custom arrangements by request'];
- for(const text of answers)assert.equal((await request('/api/owner/chat',{text},ownerCookie)).status,201);
- let me=await(await request('/api/me',undefined,ownerCookie)).json();assert.equal(me.business.profile.name,'Mogra Studio');assert.equal(me.business.step,4);assert.equal(me.business.published,false);
+ await request('/api/owner/chat',{text:'Mogra Studio'},ownerCookie);
+ let me=await(await request('/api/me',undefined,ownerCookie)).json();assert.equal(me.business.step,0);assert.deepEqual(me.business.profile,{});assert.match(me.messages.at(-1).text,/couldn't check/);
+ // Manual Business details remain available when the AI provider is not configured.
+ await request('/api/business',{profile:{name:'Mogra Studio',offerings:'Classic bouquet from ₹650',pricing:'Classic bouquet from ₹650',location:'Jayanagar, Bengaluru',contact:'9000000000',hours:'Mon–Sat, 9 am–7 pm, Asia/Kolkata',policies:'Custom arrangements by request'}},ownerCookie);
+ me=await(await request('/api/me',undefined,ownerCookie)).json();assert.equal(me.business.profile.name,'Mogra Studio');assert.equal(me.business.step,4);assert.equal(me.business.published,false);
  const slug=me.business.slug;
  assert.equal((await request('/api/public/'+slug)).status,404);
  assert.equal((await request('/api/business',{published:true},ownerCookie)).status,200);
@@ -51,7 +54,7 @@ test('accounts, isolation, conversational onboarding, customer handoff and durab
 });
 
 test('OpenAI-compatible routing and owner-reviewed knowledge updates',async t=>{
- const calls:any[]=[];const provider=createServer(async(req,res)=>{let raw='';for await(const chunk of req)raw+=chunk;const request=JSON.parse(raw);calls.push(request);res.setHeader('Content-Type','application/json');const content=request.model==='customer-test'?{answer:'Owner-approved bouquets start at ₹650.',needsOwner:false}:{reply:'I prepared your new hours for approval.',updates:{hours:'Mon–Fri 10–6'}};res.end(JSON.stringify({choices:[{message:{content:JSON.stringify(content)}}]}));});provider.listen(0,'127.0.0.1');await once(provider,'listening');const p=provider.address();assert(p&&typeof p!=='string');process.env.LLM_BASE_URL=`http://127.0.0.1:${p.port}/v1`;process.env.LLM_API_KEY='test-fixture';process.env.OWNER_MODEL='owner-test';process.env.CUSTOMER_MODEL='customer-test';
+ const calls:any[]=[];const provider=createServer(async(req,res)=>{let raw='';for await(const chunk of req)raw+=chunk;const request=JSON.parse(raw);calls.push(request);res.setHeader('Content-Type','application/json');const content=onboardingFixture(request.messages[0].content,request.messages)|| (request.model==='customer-test'?{answer:'Owner-approved bouquets start at ₹650.',needsOwner:false}:{reply:'I prepared your new hours for approval.',updates:{hours:'Mon–Fri 10–6'}});res.end(JSON.stringify({choices:[{message:{content:JSON.stringify(content)}}]}));});provider.listen(0,'127.0.0.1');await once(provider,'listening');const p=provider.address();assert(p&&typeof p!=='string');process.env.LLM_BASE_URL=`http://127.0.0.1:${p.port}/v1`;process.env.LLM_API_KEY='test-fixture';process.env.OWNER_MODEL='owner-test';process.env.CUSTOMER_MODEL='customer-test';
  const dir=mkdtempSync(join(tmpdir(),'dhanavi-model-'));const server=createWebApp(join(dir,'data.json'));server.listen(0,'127.0.0.1');await once(server,'listening');const a=server.address();assert(a&&typeof a!=='string');const base=`http://127.0.0.1:${a.port}`;
  t.after(async()=>{server.closeAllConnections();provider.closeAllConnections();await Promise.all([new Promise(r=>server.close(r)),new Promise(r=>provider.close(r))]);rmSync(dir,{recursive:true,force:true});for(const key of ['LLM_BASE_URL','LLM_API_KEY','OWNER_MODEL','CUSTOMER_MODEL'])delete process.env[key];});
  let cookie='';const post=(path:string,body:unknown)=>fetch(base+path,{method:'POST',headers:{'Content-Type':'application/json',Cookie:cookie},body:JSON.stringify(body)});
