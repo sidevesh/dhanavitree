@@ -11,7 +11,7 @@ import { createWebApp } from '../src/web.ts';
 test('voice calls run owner setup and customer chat through the shared conversation turns', async t => {
  // Stand-in for the Pipecat service: records each proxied WebSocket handshake, accepts it and echoes bytes.
  const handshakes:string[]=[];const voiceSockets=new Set<Socket>();
- const voice=createNetServer(socket=>{voiceSockets.add(socket);let raw='';socket.on('data',function first(chunk){raw+=chunk;if(!raw.includes('\r\n\r\n'))return;socket.off('data',first);const [head,rest]=raw.split('\r\n\r\n');handshakes.push(head);socket.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n');if(rest)socket.write('echo:'+rest);socket.on('data',c=>socket.write('echo:'+c));});});
+ const voice=createNetServer(socket=>{voiceSockets.add(socket);let raw='';socket.on('data',function first(chunk){raw+=chunk;if(!raw.includes('\r\n\r\n'))return;socket.off('data',first);const [head,rest]=raw.split('\r\n\r\n');if(head.startsWith('GET /health ')){socket.end('HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 15\r\nConnection: close\r\n\r\n{"status":"ok"}');return;}handshakes.push(head);socket.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n');if(rest)socket.write('echo:'+rest);socket.on('data',c=>socket.write('echo:'+c));});});
  voice.listen(0,'127.0.0.1');await once(voice,'listening');const va=voice.address();assert(va&&typeof va!=='string');
  // Render's private-network reference has no scheme.
  process.env.VOICE_URL=`127.0.0.1:${va.port}`;process.env.VOICE_INTERNAL_SECRET='voice-secret-for-tests';
@@ -24,6 +24,8 @@ test('voice calls run owner setup and customer chat through the shared conversat
  const turn=async(token:string,text='',secret='voice-secret-for-tests')=>{const r=await request('/api/voice/turn',{token,text},{'X-Voice-Secret':secret});return {status:r.status,...await r.json() as any};};
 
  const signup=await request('/api/auth/signup',{name:'Kavya',email:'kavya@example.com',password:'correct-horse-123'});const owner={Cookie:signup.headers.get('set-cookie')!.split(';')[0]};
+ // The first check starts the voice service health probe; the button appears once it answers.
+ await request('/api/me',undefined,owner);await new Promise(r=>setTimeout(r,200));
  assert.equal((await(await request('/api/me',undefined,owner)).json()).voice,true);
  assert.equal((await request('/api/voice/start',{})).status,401,'voice needs a signed-in owner');
  const start=await request('/api/voice/start',{},owner);assert.equal(start.status,200);const ownerToken=(await start.json()).token;

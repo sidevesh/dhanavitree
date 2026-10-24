@@ -15,6 +15,7 @@ Render web services. Only Node should reach this service: it checks a shared sec
 import asyncio
 import hmac
 import os
+import time
 from pathlib import Path
 
 import aiohttp
@@ -58,6 +59,7 @@ OPENAI_BASE = os.environ.get("VOICE_OPENAI_BASE_URL") or "https://api.openai.com
 # Silence after speech before a turn is sent. Owners answering setup questions pause mid-answer,
 # so short pauses are joined into one turn instead of advancing onboarding early.
 TURN_PAUSE_SECS = float(os.environ.get("VOICE_TURN_PAUSE_SECS", "1.2"))
+ECHO_TAIL_SECS = 0.5
 SAMPLE_RATE = 16000
 
 
@@ -87,6 +89,7 @@ class DhanaviBridge(FrameProcessor):
         # Speech that starts while the bot is talking is usually its own voice coming back
         # through the speaker. Ignore it, or it would be saved as the next answer.
         self._bot_speaking = False
+        self._bot_stopped_at = 0.0
         self._echo = False
 
     async def _call(self, text: str = "", end: bool = False) -> str:
@@ -138,9 +141,12 @@ class DhanaviBridge(FrameProcessor):
         await super().process_frame(frame, direction)
         if isinstance(frame, (BotStartedSpeakingFrame, BotStoppedSpeakingFrame)):
             self._bot_speaking = isinstance(frame, BotStartedSpeakingFrame)
+            if not self._bot_speaking:
+                self._bot_stopped_at = time.monotonic()
             await self.push_frame(frame, direction)
         elif isinstance(frame, VADUserStartedSpeakingFrame):
-            self._echo = self._bot_speaking
+            # The browser is still playing the last chunk for a moment after it was sent.
+            self._echo = self._bot_speaking or time.monotonic() - self._bot_stopped_at < ECHO_TAIL_SECS
             if not self._echo:
                 # The speaker continued; wait for the whole answer.
                 self._cancel_timer()
