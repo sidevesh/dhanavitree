@@ -77,3 +77,38 @@ button:disabled {
     margin: 16px;
   }
 }
+
+.catalog-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 140px auto;
+  align-items: end;
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.catalog-row .text-button {
+  min-height: 44px;
+}
+
+.order-review {
+  border-top: 1px solid var(--line);
+  margin-top: 20px;
+  padding-top: 18px;
+}
+
+.order-review p {
+  margin: 10px 0;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 700px) {
+  .catalog-row {
+    grid-template-columns: minmax(0, 1fr) minmax(90px, 120px);
+  }
+
+  .catalog-row .text-button {
+    grid-column: 1 / -1;
+    justify-self: start;
+    padding-left: 0;
+  }
+}

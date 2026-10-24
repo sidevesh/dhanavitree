@@ -47,6 +47,7 @@ test('approved prices, durable idempotency, payment verification and tenant isol
   await c.action(b.id,b.slug,order.id,'refresh');assert.equal(messages.filter(m=>m.includes('verified by Pine Labs')).length,1);
   c.saveSettings('shop',{catalog:[{id:'flowers',name:'Bouquet',price:65000}],autoCheckout:false});
   const requested=await c.purchase(b,thread,{...input,requestKey:'manual-request'});assert.equal(requested.status,'requested');assert.equal(creates,2);
+  await c.action(b.id,b.slug,requested.id,'review');assert.equal(c.publicOrders(thread.id)[0].status,'requested','HITL review cannot approve a payment request');
   await c.action(b.id,b.slug,requested.id,'approve');assert.equal(c.publicOrders(thread.id)[0].status,'link_sent');
 });
 

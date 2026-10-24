@@ -5,12 +5,12 @@ export function createPineLabs() {
   const base = () => (process.env.PINELABS_BASE_URL || 'https://pluraluat.v2.pinepg.in').replace(/\/+$/, '');
   const headers = () => ({ 'Content-Type': 'application/json', 'Request-ID': randomUUID(), 'Request-Timestamp': new Date().toISOString() });
   async function accessToken() {
-    if (!paymentsConfigured()) throw Object.assign(Error('Pine Labs is not configured. Add merchant credentials and PUBLIC_URL.'), { status: 503 });
+    if (!paymentsConfigured()) throw Object.assign(Error('Online checkout is currently unavailable. Please contact the business for payment options.'), { status: 503 });
     if (token && Date.now() < expires - 60_000) return token;
     const response = await fetch(base() + '/api/auth/v1/token', { method: 'POST', headers: headers(), body: JSON.stringify({
       client_id: process.env.PINELABS_CLIENT_ID, client_secret: process.env.PINELABS_CLIENT_SECRET, grant_type: 'client_credentials',
     }), signal: AbortSignal.timeout(15_000) });
-    if (!response.ok) throw Object.assign(Error(`Pine Labs authentication unavailable (${response.status})`), { status: 502 });
+    if (!response.ok) throw Object.assign(Error('Payment requests are temporarily unavailable. Please try again later.'), { status: 502 });
     const data = await response.json() as any;
     if (typeof data.access_token !== 'string') throw Error('Pine Labs returned no access token');
     token = data.access_token;
@@ -22,7 +22,7 @@ export function createPineLabs() {
       method: input === undefined ? 'GET' : 'POST', headers: { ...headers(), Authorization: `Bearer ${await accessToken()}` },
       ...(input === undefined ? {} : { body: JSON.stringify(input) }), signal: AbortSignal.timeout(20_000),
     });
-    if (!response.ok) { if (response.status === 401) { token = ''; expires = 0; } throw Object.assign(Error(`Pine Labs request unavailable (${response.status})`), { status: 502 }); }
+    if (!response.ok) { if (response.status === 401) { token = ''; expires = 0; } throw Object.assign(Error('Payment requests are temporarily unavailable. Please try again later.'), { status: 502 }); }
     return await response.json() as any;
   }
   return {

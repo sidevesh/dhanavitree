@@ -44,14 +44,14 @@ export async function complete(system: string, messages: any[], role = 'owner', 
 }
 
 export async function research(query: string) {
-  if (!metaConfigured()) throw Object.assign(Error('Configure Meta Model API to enable web research.'), { status: 503 });
+  if (!metaConfigured()) throw Object.assign(Error('Research is temporarily unavailable. Please try again later.'), { status: 503 });
   const response = await fetch(process.env.LLM_BASE_URL!.replace(/\/+$/, '') + '/responses', {
     method: 'POST', headers: { Authorization: `Bearer ${process.env.LLM_API_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ model: process.env.OWNER_MODEL || process.env.LLM_MODEL,
       input: `Research this business topic using current web sources. Include source URLs, dates and uncertainties. Do not change business policies. Topic: ${query}`,
       tools: [{ type: 'web_search' }], max_output_tokens: 4000 }), signal: AbortSignal.timeout(55_000),
   });
-  if (!response.ok) throw Object.assign(Error(`Meta research unavailable (${response.status})`), { status: 502 });
+  if (!response.ok) throw Object.assign(Error('Research is temporarily unavailable. Please try again later.'), { status: 502 });
   const data = await response.json() as any;
   if (data.status && data.status !== 'completed') throw Object.assign(Error('Research did not complete. Please retry.'), { status: 502 });
   const blocks = (data.output || []).filter((o: any) => o.type === 'message').flatMap((o: any) => o.content || []).filter((c: any) => c.type === 'output_text');

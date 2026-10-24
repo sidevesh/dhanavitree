@@ -11,7 +11,7 @@ export function createWebApp(dataFile:string,whatsapp?:Config){
   if(url.pathname==='/health'){res.writeHead(200,{'Content-Type':'application/json'});res.end(JSON.stringify({status:'ok',whatsapp:!!whatsapp}));return;}
   if(url.pathname==='/webhook'){if(webhook)webhook.emit('request',req,res);else{res.writeHead(503);res.end('WhatsApp integration is not configured');}return;}
   if(await platform.handle(req,res))return;
-  const files:Record<string,[string,string]>={'/':['index.html','text/html'],'/login':['index.html','text/html'],'/app':['index.html','text/html'],'/app.js':['app.js','text/javascript'],'/style.css':['style.css','text/css'],'/design':['design.html','text/html'],'/design.css':['design.css','text/css'],'/design.js':['design.js','text/javascript']};
+  const files:Record<string,[string,string]>={'/':['index.html','text/html'],'/login':['index.html','text/html'],'/app':['index.html','text/html'],'/app.js':['app.js','text/javascript'],'/style.css':['style.css','text/css']};
   const file=/^\/b\/[a-z0-9-]+$/.test(url.pathname)?files['/']:files[url.pathname];
   if(req.method!=='GET'||!file){res.writeHead(404);res.end('Not found');return;}
   res.writeHead(200,{'Content-Type':`${file[1]}; charset=utf-8`,'X-Content-Type-Options':'nosniff','Cache-Control':'no-cache','Content-Security-Policy':"default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data: https:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"});

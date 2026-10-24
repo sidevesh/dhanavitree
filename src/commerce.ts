@@ -37,14 +37,14 @@ export function createCommerce(db: DatabaseSync, message: (thread: string, text:
       // runAgent errors carry only the HTTP status, never provider bodies, so they are safe to log.
       console.warn(`AgenticOrg ${role} agent failed: ${e?.message}`);
       run('INSERT INTO agent_runs VALUES(?,?,?,?,?,?,?,?,?)', randomUUID(), business, role, scope, null, 'failed', 0, null, now());
-      throw Object.assign(Error('AgenticOrg is unavailable. Check the key, agent ID and execute permissions.'), { status: 502 });
+      throw Object.assign(Error('An order review could not be prepared. Please try again later.'), { status: 502 });
     }
   }
   async function issue(o: Row, slug: string) {
     if (o.link_url || o.status !== 'approved') return;
     if (!paymentsConfigured()) {
       const upiId = settings(o.business).upiId;
-      if (!upiId) fail('Add a UPI ID in Orders & agents or configure Pine Labs before requesting payment.',503);
+      if (!upiId) fail('Add your UPI ID in Orders before requesting payment.',503);
       const b = one('SELECT profile FROM businesses WHERE id=?',o.business);
       const payee = b ? JSON.parse(b.profile).name || 'Business' : 'Business';
       const link = new URL('upi://pay');
@@ -95,7 +95,7 @@ export function createCommerce(db: DatabaseSync, message: (thread: string, text:
       if (!Array.isArray(input.catalog) || input.catalog.length > 100) fail('Use up to 100 catalog items.');
       const ids = new Set();
       const catalog = input.catalog.map((i: any) => {
-        if (!i || typeof i.id !== 'string' || !/^[a-zA-Z0-9_-]{1,60}$/.test(i.id) || ids.has(i.id) || typeof i.name !== 'string' || !i.name.trim() || i.name.length > 150 || !Number.isSafeInteger(i.price) || i.price < 100 || i.price > 50_000_000) fail('Each catalog item needs a unique ID, name and price in paise (₹1–₹5,00,000).');
+        if (!i || typeof i.id !== 'string' || !/^[a-zA-Z0-9_-]{1,60}$/.test(i.id) || ids.has(i.id) || typeof i.name !== 'string' || !i.name.trim() || i.name.length > 150 || !Number.isSafeInteger(i.price) || i.price < 100 || i.price > 50_000_000) fail('Check that each product has a name and a valid price between ₹1 and ₹5,00,000.');
         ids.add(i.id); return { id: i.id, name: i.name.trim(), price: i.price };
       });
       const upiId = typeof input.upiId === 'string' ? input.upiId.trim() : settings(business).upiId;
