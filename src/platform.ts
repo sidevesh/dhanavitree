@@ -10,7 +10,9 @@ const scrypt = promisify(derive);
 type Profile = Record<string, string>;
 type Row = Record<string, any>;
 const hash = (s: string) => createHash('sha256').update(s).digest('hex');
-const fields = ['name','offerings','location','contact','hours','policies','pricing'];
+const fields = ['name','offerings','pricing','location','contact','hours','policies'];
+// Onboarding asks four questions; each answer fills one profile field (all fields stay editable in Business details).
+const onboarding = ['name','pricing','location','hours'];
 // Onboarding answers are free text, so tidy them before they become public profile fields.
 const URL_PATTERN = /https?:\/\/[^\s]+/gi;
 const tidyUrl = (raw: string) => { try { const u = new URL(raw.replace(/[).,]+$/, '')); return u.origin + (u.pathname === '/' ? '' : u.pathname); } catch { return raw; } };
@@ -34,7 +36,10 @@ export async function tidyOnboardingAnswer(field: string, text: string, profile:
   if (stated) return stated[1].trim();
   return (firstUrl ? titleFromHost(firstUrl) : '') || plain.slice(0, 60);
 }
-const prompts = ["First, what's your business called?", 'What do you offer? Share products, services and prices, or attach a menu.', 'Where do you serve customers? Share an address, service area or Google Maps link.', 'What contact details may I share with customers?', 'What are your opening hours? Include days and timezone if relevant.', 'Anything else customers should know—delivery, bookings, returns or custom orders?', 'Last one: how do you price bookings, parties or orders? List packages with prices (for example "Full cafe booking ₹5,000 per day" or "Birthday package ₹299 per person, minimum 15 guests"), the lowest price you would accept, and any advance you take.'];
+const prompts = ["First, what's your business called?",
+  'What do you offer, and at what prices? List your menu or services and any packages (for example "Full cafe booking ₹5,000 per day" or "Birthday package ₹299 per person, minimum 15 guests"), the lowest price you would accept, and any advance you take. You can also attach a menu.',
+  'Where are you, and how can customers reach you? Share an address or Google Maps link and a phone or WhatsApp number.',
+  'Last one: what are your opening hours, and anything else customers should know (delivery, bookings, cancellations)?'];
 export function createPlatform(file: string) {
  mkdirSync(dirname(file), {recursive:true});
  const db = new DatabaseSync(file); db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;');
@@ -58,13 +63,14 @@ export function createPlatform(file: string) {
  const locks = new Set<string>();
  function limit(key:string,max=40) { const t=Date.now(); if(limits.size>5000)for(const [k,v]of limits)if(v.until<t)limits.delete(k);const v=limits.get(key);if(!v||v.until<t){limits.set(key,{count:1,until:t+60000});return false;}return ++v.count>max; }
  const commerce=createCommerce(db,(thread,text)=>addMessage('messages',thread,'assistant',text));
- // Owners who completed the earlier six questions are asked the pricing question once.
- for(const old of db.prepare("SELECT id,profile FROM businesses WHERE step=?").all(fields.length-1) as Row[])if(!JSON.parse(old.profile).pricing&&!one("SELECT id FROM owner_messages WHERE business=? AND sender='assistant' AND text=?",old.id,prompts[fields.length-1]))addMessage('owner_messages',old.id,'assistant',prompts[fields.length-1]!);
+ // Owners who finished onboarding before prices were asked get one reminder in their Dhanavi chat.
+ const pricingReminder='Add your packages and prices in Business details → "Packages, prices & booking rules" so your assistant can quote them and customers can request them.';
+ for(const old of db.prepare("SELECT id,profile FROM businesses WHERE step>=?").all(onboarding.length) as Row[])if(!JSON.parse(old.profile).pricing&&!one("SELECT id FROM owner_messages WHERE business=? AND sender='assistant' AND text=?",old.id,pricingReminder))addMessage('owner_messages',old.id,'assistant',pricingReminder);
  // Turns the owner's pricing answer into catalog items customers can request (only when the catalog is empty).
  async function catalogFromPricing(businessId:string,pricing?:string){
   if(!pricing||!textConfigured())return;const current=commerce.settings(businessId);if(current.catalog.length)return;
   try{
-   const result=await complete('From the business owner\'s pricing text, list bookable packages or products that have a clear fixed price. Return JSON {"items":[{"name":"...","price":<number in rupees>,"unit":"per person | per day | each | ..."}]}. Skip anything without a clear price. At most 10 items.',[{role:'user',content:pricing}],'owner');
+   const result=await complete('From the business owner\'s pricing text, list bookable packages or products that have a clear fixed price. Return JSON {"items":[{"name":"...","price":<number in rupees>,"unit":"per person | per day | each | ..."}]}. Skip anything without a clear price. Do NOT list minimum or lowest acceptable prices, discounts or advances as items. At most 10 items.',[{role:'user',content:pricing}],'owner');
    const ids=new Set<string>();const catalog=(Array.isArray(result?.items)?result.items:[]).flatMap((i:any,n:number)=>{const price=Math.round(Number(i?.price)*100);const name=String(i?.name||'').trim();if(!name||!Number.isSafeInteger(price)||price<100||price>50_000_000)return [];let id=name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,50)||'item-'+n;while(ids.has(id))id+='-'+n;ids.add(id);return [{id,name:(i?.unit?`${name} (${String(i.unit).trim()})`:name).slice(0,150),price}];});
    if(catalog.length)commerce.saveSettings(businessId,{catalog,autoCheckout:false,upiId:current.upiId});
   }catch(e:any){console.warn('Could not build catalog from pricing: '+e.message);}
@@ -146,12 +152,12 @@ export function createPlatform(file: string) {
    if(url.pathname==='/api/business'){
     const changes=safeChanges(input.profile);for(const key of fields)if(input.profile?.[key]==='')changes[key]='';const profile={...JSON.parse(b.profile),...changes};let slug=b.slug;
     if(input.slug!==undefined){slug=String(input.slug).toLowerCase().trim();if(!/^[a-z0-9][a-z0-9-]{2,59}$/.test(slug)){json(400,{error:'Use 3–60 lowercase letters, numbers or hyphens for your link.'});return true;}if(one('SELECT id FROM businesses WHERE slug=? AND id!=?',slug,b.id)){json(409,{error:'That link is already taken.'});return true;}}
-    run('UPDATE businesses SET profile=?,slug=?,published=?,step=? WHERE id=?',JSON.stringify(profile),slug,input.published===undefined?b.published:input.published?1:0,input.published===true||fields.every(key=>profile[key])?fields.length:b.step,b.id);if(changes.pricing)await catalogFromPricing(b.id,profile.pricing);json(200,{ok:true});return true;
+    run('UPDATE businesses SET profile=?,slug=?,published=?,step=? WHERE id=?',JSON.stringify(profile),slug,input.published===undefined?b.published:input.published?1:0,input.published===true||onboarding.every(key=>profile[key])?onboarding.length:b.step,b.id);if(changes.pricing)await catalogFromPricing(b.id,profile.pricing);json(200,{ok:true});return true;
    }
    if(url.pathname==='/api/owner/chat'){
     const text=typeof input.text==='string'?input.text.trim():'';if(!text||text.length>8000){json(400,{error:'Write a message of up to 8,000 characters.'});return true;}if(locks.has(b.id)){json(409,{error:'Please wait for the current response.'});return true;}locks.add(b.id);try{
      addMessage('owner_messages',b.id,'owner',text);let reply='';
-     if(b.step<fields.length){const profile=JSON.parse(b.profile);if(!/^(skip|skip for now)$/i.test(text))profile[fields[b.step]]=await tidyOnboardingAnswer(fields[b.step],text,profile);const step=b.step+1;run('UPDATE businesses SET profile=?,step=? WHERE id=?',JSON.stringify(profile),step,b.id);if(fields[b.step]==='pricing')await catalogFromPricing(b.id,profile.pricing);reply=step<fields.length?`Got it—saved to your business profile. ${prompts[step]}`:"Your first business profile is ready. Open Business details to review it, then publish your customer link. You can keep chatting here, or update any detail there. Nothing is shared with customers until you publish.";
+     if(b.step<onboarding.length){const profile=JSON.parse(b.profile);const field=onboarding[b.step]!;if(!/^(skip|skip for now)$/i.test(text)){profile[field]=await tidyOnboardingAnswer(field,text,profile);if(field==='pricing'&&!profile.offerings)profile.offerings=profile.pricing;}const step=b.step+1;run('UPDATE businesses SET profile=?,step=? WHERE id=?',JSON.stringify(profile),step,b.id);if(field==='pricing')await catalogFromPricing(b.id,profile.pricing);reply=step<onboarding.length?`Got it—saved to your business profile. ${prompts[step]}`:"Your first business profile is ready. Open Business details to review it, then publish your customer link. You can keep chatting here, or update any detail there. Nothing is shared with customers until you publish.";
      }else if(agentConfigured('owner')||(process.env.LLM_API_KEY&&process.env.LLM_BASE_URL)){try{const history=all('SELECT sender,text FROM owner_messages WHERE business=? ORDER BY rowid DESC LIMIT 16',b.id).reverse();const result=await model(`You are Dhanavi, a practical assistant for a business owner. Return JSON {"reply":"helpful conversational response","updates":{}}. Updates may contain ONLY owner-supplied corrections to name,offerings,location,contact,hours,policies. Do not invent facts or claim updates are saved: they require owner confirmation. Offer small feasible business improvements, ask about capacity, budget and goals. Do not invent festival dates, weather, current events or claim internet access. Be concise. Profile: ${b.profile}. Confirmed facts: ${JSON.stringify(all('SELECT question,answer FROM facts WHERE business=?',b.id))}`,history.map(m=>({role:m.sender==='owner'?'user':'assistant',content:m.text})),'owner',undefined,b.id,b.id);reply=typeof result.reply==='string'?result.reply:'What would you like to work on?';saveDraft(b,safeChanges(result.updates));}catch{reply="I couldn't prepare a reply right now. Your message is saved. You can still update Business details and answer customer questions; try this conversation again shortly.";}}
      else{const match=text.match(/^(name|offerings|location|contact|hours|policies)\s*:\s*([\s\S]+)$/i);if(match){saveDraft(b,{[match[1].toLowerCase()]:match[2]});reply='I prepared that update for review. Confirm the proposed change below to save it.';}else reply='Your message is saved. You can update Business details or answer questions in Customers. Please try this conversation again later.';}
      addMessage('owner_messages',b.id,'assistant',reply.slice(0,16000));json(201,{ok:true});return true;
