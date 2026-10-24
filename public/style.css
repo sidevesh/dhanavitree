@@ -113,3 +113,4 @@ button:disabled {
   }
 }
 .counter-form{display:grid;grid-template-columns:minmax(120px,1fr) 2fr auto;gap:10px;align-items:end;margin-top:14px}.counter-form label input{margin-top:6px}@media(max-width:700px){.counter-form{grid-template-columns:1fr}}
+.share-message{margin-top:16px}.share-message textarea{background:#f8faf2;font-size:13px;line-height:1.7}.share-actions{margin-top:12px}
