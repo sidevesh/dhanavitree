@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: dhanavitree
+    runtime: node
+    plan: starter
+    buildCommand: npm ci --include=dev && npm run typecheck && npm test
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_VERSION
+        value: 24.19.0
+      - key: WHATSAPP_VERIFY_TOKEN
+        generateValue: true
+      - key: META_APP_SECRET
+        sync: false
+      - key: WHATSAPP_ACCESS_TOKEN
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: WHATSAPP_GRAPH_VERSION
+        value: v23.0
