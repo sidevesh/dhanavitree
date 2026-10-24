@@ -29,12 +29,12 @@ test('HITL chat answers are usable, profile edits need approval, and agent failu
   const post=(path:string,body:unknown,cookie='')=>fetch(base+path,{method:'POST',headers:{'Content-Type':'application/json',Cookie:cookie},body:JSON.stringify(body)});
   const signup=await post('/api/auth/signup',{name:'Kavya',email:'agent-owner@example.com',password:'correct-password'});assert.equal(signup.status,201);const cookie=signup.headers.get('set-cookie')!.split(';')[0];
   const me=async()=>await(await fetch(base+'/api/me',{headers:{Cookie:cookie}})).json();
-  for(const text of ['Mogra','Bouquets from ₹650','Bengaluru','shop@example.com','Monday–Saturday 9–7','Custom orders by request'])assert.equal((await post('/api/owner/chat',{text},cookie)).status,201);
+  for(const text of ['Mogra','Bouquets from ₹650','Bengaluru, shop@example.com','Monday–Saturday 9–7'])assert.equal((await post('/api/owner/chat',{text},cookie)).status,201);
   await post('/api/business',{published:true},cookie);
   await post('/api/owner/chat',{text:'Change our hours to Monday–Friday 10–6.'},cookie);
-  let state=await me();assert.match(state.messages.at(-1).text,/prepared/);assert.equal(state.business.profile.hours,'Monday–Saturday 9–7');assert.equal(state.drafts[0].changes.hours,'Monday–Friday 10–6');assert.equal(state.commerce.runs[0].hitl,1);assert.equal(directCalls,0);
+  let state=await me();assert.match(state.messages.at(-1).text,/prepared/);assert.equal(state.business.profile.hours,'Monday–Saturday 9–7');assert.equal(state.drafts[0].changes.hours,'Monday–Friday 10–6');assert.equal(state.commerce.runs[0].hitl,1);assert.equal(directCalls,1,'only the onboarding price answer is sent to the text model (catalog extraction)');
   const customer=await post('/api/public/'+state.business.slug+'/messages',{text:'How much is a bouquet?'});assert.equal(customer.status,201);const guest=customer.headers.get('set-cookie')!.split(';')[0];
   const chat=await(await fetch(base+'/api/public/'+state.business.slug,{headers:{Cookie:guest}})).json();assert.equal(chat.messages.at(-1).text,'Bouquets start at ₹650.');
-  failure=true;await post('/api/owner/chat',{text:'Help me plan next week.'},cookie);state=await me();assert.match(state.messages.at(-1).text,/assistant is available/);assert.equal(directCalls,1);assert.equal(state.commerce.runs[0].status,'failed');
-  failure=false;empty=true;await post('/api/owner/chat',{text:'What can I improve?'},cookie);assert.equal(directCalls,2,'empty HITL output falls back to the text model');
+  failure=true;await post('/api/owner/chat',{text:'Help me plan next week.'},cookie);state=await me();assert.match(state.messages.at(-1).text,/assistant is available/);assert.equal(directCalls,2);assert.equal(state.commerce.runs[0].status,'failed');
+  failure=false;empty=true;await post('/api/owner/chat',{text:'What can I improve?'},cookie);assert.equal(directCalls,3,'empty HITL output falls back to the text model');
 });

@@ -19,9 +19,9 @@ test('accounts, isolation, conversational onboarding, customer handoff and durab
  assert.equal((await request('/api/me')).status,401);
  assert.equal((await request('/api/auth/login',{email:'kavya@example.com',password:'wrong-password'})).status,401);
  assert.equal((await request('/api/auth/signup',{email:'kavya@example.com',password:'correct-horse-123'})).status,409);
- const answers=['Mogra Studio','Classic bouquet from ₹650','Jayanagar, Bengaluru','Call 9000000000','Mon–Sat, 9 am–7 pm, Asia/Kolkata','Custom arrangements by request'];
+ const answers=['Mogra Studio','Classic bouquet from ₹650','Jayanagar, Bengaluru. Call 9000000000','Mon–Sat, 9 am–7 pm, Asia/Kolkata. Custom arrangements by request'];
  for(const text of answers)assert.equal((await request('/api/owner/chat',{text},ownerCookie)).status,201);
- let me=await(await request('/api/me',undefined,ownerCookie)).json();assert.equal(me.business.profile.name,'Mogra Studio');assert.equal(me.business.step,6);assert.equal(me.business.published,false);
+ let me=await(await request('/api/me',undefined,ownerCookie)).json();assert.equal(me.business.profile.name,'Mogra Studio');assert.equal(me.business.step,4);assert.equal(me.business.published,false);
  const slug=me.business.slug;
  assert.equal((await request('/api/public/'+slug)).status,404);
  assert.equal((await request('/api/business',{published:true},ownerCookie)).status,200);
@@ -56,7 +56,7 @@ test('OpenAI-compatible routing and owner-reviewed knowledge updates',async t=>{
  t.after(async()=>{server.closeAllConnections();provider.closeAllConnections();await Promise.all([new Promise(r=>server.close(r)),new Promise(r=>provider.close(r))]);rmSync(dir,{recursive:true,force:true});for(const key of ['LLM_BASE_URL','LLM_API_KEY','OWNER_MODEL','CUSTOMER_MODEL'])delete process.env[key];});
  let cookie='';const post=(path:string,body:unknown)=>fetch(base+path,{method:'POST',headers:{'Content-Type':'application/json',Cookie:cookie},body:JSON.stringify(body)});
  const signup=await post('/api/auth/signup',{email:'model@example.com',password:'correct-pass',name:'Tester'});cookie=signup.headers.get('set-cookie')!.split(';')[0];
- for(const text of ['Test Shop','Bouquets from ₹650','Bengaluru','Email shop@example.com','Mon–Sat 9–7','Ask for delivery','Bouquets ₹650 each, lowest ₹600'])await post('/api/owner/chat',{text});
+ for(const text of ['Test Shop','Bouquets from ₹650','Bengaluru, email shop@example.com','Mon–Sat 9–7'])await post('/api/owner/chat',{text});
  await post('/api/owner/chat',{text:'Our new hours are Mon–Fri 10–6'});
  const getMe=async()=>await(await fetch(base+'/api/me',{headers:{Cookie:cookie}})).json();let me=await getMe();assert.equal(me.business.profile.hours,'Mon–Sat 9–7');assert.equal(me.drafts[0].changes.hours,'Mon–Fri 10–6');
  await post('/api/drafts/'+me.drafts[0].id+'/approve',{});await post('/api/business',{published:true});me=await getMe();assert.equal(me.business.profile.hours,'Mon–Fri 10–6');
