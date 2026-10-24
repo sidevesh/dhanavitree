@@ -108,7 +108,7 @@ export function createPlatform(file: string) {
    if(req.method==='GET'&&url.pathname.startsWith('/api/files/')){const f=one('SELECT * FROM files WHERE id=? AND business=?',url.pathname.split('/').at(-1),b.id);if(!f){json(404,{error:'File not found'});return true;}res.writeHead(200,{'Content-Type':f.mime,'Content-Disposition':`attachment; filename="${f.name.replace(/[^a-zA-Z0-9._-]/g,'_')}"`,'X-Content-Type-Options':'nosniff','Cache-Control':'private, no-store'});res.end(f.content);return true;}
    if(req.method!=='POST'){json(404,{error:'Not found'});return true;}const input=await body(req);
    if(url.pathname==='/api/commerce'){commerce.saveSettings(b.id,input);json(200,{ok:true});return true;}
-   const orderAction=url.pathname.match(/^\/api\/orders\/([a-zA-Z0-9-]+)\/(approve|refresh|review|confirm)$/);if(orderAction){json(200,{order:await commerce.action(b.id,b.slug,orderAction[1],orderAction[2],undefined,input)});return true;}
+   const orderAction=url.pathname.match(/^\/api\/orders\/([a-zA-Z0-9-]+)\/(approve|reject|counter|refresh|review|confirm)$/);if(orderAction){json(200,{order:await commerce.action(b.id,b.slug,orderAction[1],orderAction[2],undefined,input)});return true;}
    if(url.pathname==='/api/business'){
     const changes=safeChanges(input.profile);for(const key of fields)if(input.profile?.[key]==='')changes[key]='';const profile={...JSON.parse(b.profile),...changes};let slug=b.slug;
     if(input.slug!==undefined){slug=String(input.slug).toLowerCase().trim();if(!/^[a-z0-9][a-z0-9-]{2,59}$/.test(slug)){json(400,{error:'Use 3–60 lowercase letters, numbers or hyphens for your link.'});return true;}if(one('SELECT id FROM businesses WHERE slug=? AND id!=?',slug,b.id)){json(409,{error:'That link is already taken.'});return true;}}
