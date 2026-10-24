@@ -1,11 +1,24 @@
 import { randomUUID } from 'node:crypto';
 
+const provider = () => (process.env.LLM_PROVIDER || '').trim().toLowerCase();
+// OpenAI defaults, and protection against leftover Muse model names when switching providers.
+if (provider() === 'openai') {
+  if (!process.env.LLM_BASE_URL || /api\.meta\.ai/i.test(process.env.LLM_BASE_URL)) process.env.LLM_BASE_URL = 'https://api.openai.com/v1';
+  process.env.LLM_MODEL ||= 'gpt-4.1';
+  for (const key of ['LLM_MODEL', 'OWNER_MODEL', 'CUSTOMER_MODEL', 'VISION_MODEL', 'IMAGE_MODEL']) {
+    if (/^muse-/i.test(process.env[key] || '')) { console.warn(`Ignoring ${key}=${process.env[key]} because LLM_PROVIDER is openai`); key === 'LLM_MODEL' ? process.env[key] = 'gpt-4.1' : delete process.env[key]; }
+  }
+  if (/api\.meta\.ai/i.test(process.env.IMAGE_BASE_URL || '')) delete process.env.IMAGE_BASE_URL;
+}
 export const textConfigured = () => !!(process.env.LLM_API_KEY && process.env.LLM_BASE_URL && (process.env.LLM_MODEL || process.env.OWNER_MODEL || process.env.CUSTOMER_MODEL));
-export const metaConfigured = () => process.env.LLM_PROVIDER === 'meta' && textConfigured();
+export const metaConfigured = () => provider() === 'meta' && textConfigured();
+export const openaiConfigured = () => provider() === 'openai' && textConfigured();
+// Both Meta and OpenAI offer Responses web search and an images endpoint on the same key.
+export const builtInToolsConfigured = () => metaConfigured() || openaiConfigured();
 export const imageConfig = () => ({
-  base: process.env.IMAGE_BASE_URL || (metaConfigured() ? process.env.LLM_BASE_URL : ''),
-  key: process.env.IMAGE_API_KEY || (metaConfigured() ? process.env.LLM_API_KEY : ''),
-  model: process.env.IMAGE_MODEL || (metaConfigured() ? 'muse-image-1.0' : ''),
+  base: process.env.IMAGE_BASE_URL || (builtInToolsConfigured() ? process.env.LLM_BASE_URL : ''),
+  key: process.env.IMAGE_API_KEY || (builtInToolsConfigured() ? process.env.LLM_API_KEY : ''),
+  model: process.env.IMAGE_MODEL || (metaConfigured() ? 'muse-image-1.0' : openaiConfigured() ? 'gpt-image-2' : ''),
 });
 export const agentId = (role: string) => process.env[`AGENTICORG_${role.toUpperCase()}_AGENT_ID`] || process.env.AGENTICORG_AGENT_ID;
 export const agentConfigured = (role: string) => !!(process.env.AGENTICORG_API_KEY && agentId(role));
@@ -44,7 +57,7 @@ export async function complete(system: string, messages: any[], role = 'owner', 
 }
 
 export async function research(query: string) {
-  if (!metaConfigured()) throw Object.assign(Error('Research is temporarily unavailable. Please try again later.'), { status: 503 });
+  if (!builtInToolsConfigured()) throw Object.assign(Error('Research is temporarily unavailable. Please try again later.'), { status: 503 });
   const response = await fetch(process.env.LLM_BASE_URL!.replace(/\/+$/, '') + '/responses', {
     method: 'POST', headers: { Authorization: `Bearer ${process.env.LLM_API_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ model: process.env.OWNER_MODEL || process.env.LLM_MODEL,

@@ -26,13 +26,13 @@ Create or sync a Render Blueprint from this repository. `render.yaml` uses a **p
 
 Accounts, sessions, conversations, knowledge, uploads and creative records live in `platform.sqlite` under DATA_DIR. Keep one instance with this SQLite store. Back up the disk and use HTTPS. Old shared-demo `conversations.json` files are preserved but are not imported into private owner accounts.
 
-## Connect Meta Muse or another compatible LLM
+## Connect OpenAI (default), Meta Muse or another compatible LLM
 
 Set these securely in Render environment settings, or in an ignored local `.env` copied from `.env.example`:
 
 | Variable | Purpose |
 | --- | --- |
-| `LLM_PROVIDER` | `meta` enables built-in search and shared image credentials |
+| `LLM_PROVIDER` | `openai` (default) or `meta`; both enable built-in web search and shared image credentials |
 | `LLM_BASE_URL` | API root, e.g. `https://openrouter.ai/api/v1` or `https://api.openai.com/v1`; do not append `/chat/completions` |
 | `LLM_API_KEY` | Provider key; server-side only |
 | `LLM_MODEL` | Default model ID supported by the provider |
@@ -49,8 +49,8 @@ Restart/redeploy after changing environment variables. The app sends OpenAI Chat
 ## Files, search and creatives
 
 - Owners can upload JPG, PNG, WebP, PDF or plain text, up to 5 MB. Files are private to their owner. Text files create an offerings draft; vision models can extract offerings from images for review. PDFs are retained for download; PDF extraction is not implemented yet.
-- Internet research in **Ideas** uses Meta’s built-in `web_search` on `/responses`. Set `LLM_PROVIDER=meta`, `LLM_BASE_URL=https://api.meta.ai/v1`, `LLM_API_KEY` and `LLM_MODEL`. No Tavily key or integration is required. Answers, source URLs when returned, and retrieval time are saved in the owner conversation. Search is explicit in Ideas; ordinary customer answers stay grounded in approved business facts.
-- With Meta configured, image generation shares the text API key/base URL and defaults to `muse-image-1.0`. For other providers it requires `IMAGE_BASE_URL`, `IMAGE_API_KEY`, and `IMAGE_MODEL` for an OpenAI **Images API-compatible** endpoint. The app appends `/images/generations`. This is separate from the text gateway; OpenRouter chat-based image generation is not implemented in this adapter. Providers returning base64 or HTTPS image URLs are supported. Provider URLs may expire; download important output. Review all generated text and claims. Nothing is automatically posted or sent externally.
+- Internet research in **Ideas** uses the provider's built-in `web_search` on `/responses`. For OpenAI set `LLM_PROVIDER=openai` and `LLM_API_KEY` (base URL defaults to `https://api.openai.com/v1`, model to `gpt-4.1`); for Meta set `LLM_PROVIDER=meta`, `LLM_BASE_URL=https://api.meta.ai/v1`, `LLM_API_KEY` and `LLM_MODEL`. No Tavily key or integration is required. Answers, source URLs when returned, and retrieval time are saved in the owner conversation. Search is explicit in Ideas; ordinary customer answers stay grounded in approved business facts.
+- With OpenAI or Meta configured, image generation shares the text API key/base URL and defaults to `gpt-image-2` (OpenAI) or `muse-image-1.0` (Meta). With `LLM_PROVIDER=openai`, leftover `muse-*` model names are ignored. For other providers it requires `IMAGE_BASE_URL`, `IMAGE_API_KEY`, and `IMAGE_MODEL` for an OpenAI **Images API-compatible** endpoint. The app appends `/images/generations`. This is separate from the text gateway; OpenRouter chat-based image generation is not implemented in this adapter. Providers returning base64 or HTTPS image URLs are supported. Provider URLs may expire; download important output. Review all generated text and claims. Nothing is automatically posted or sent externally.
 
 Text, image and payment adapters have mocked contract tests. Validate your credentials against the enabled models and merchant configuration before live use. Deployment secrets are set separately; local `.env` is ignored by Git.
 
