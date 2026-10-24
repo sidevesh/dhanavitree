@@ -112,7 +112,6 @@ export function createPlatform(file: string) {
    if(url.pathname==='/api/business'){
     const changes=safeChanges(input.profile);for(const key of fields)if(input.profile?.[key]==='')changes[key]='';const profile={...JSON.parse(b.profile),...changes};let slug=b.slug;
     if(input.slug!==undefined){slug=String(input.slug).toLowerCase().trim();if(!/^[a-z0-9][a-z0-9-]{2,59}$/.test(slug)){json(400,{error:'Use 3–60 lowercase letters, numbers or hyphens for your link.'});return true;}if(one('SELECT id FROM businesses WHERE slug=? AND id!=?',slug,b.id)){json(409,{error:'That link is already taken.'});return true;}}
-    if(input.published===true&&(!profile.name||!profile.offerings)){json(400,{error:'Add your business name and offerings before publishing.'});return true;}
     run('UPDATE businesses SET profile=?,slug=?,published=?,step=? WHERE id=?',JSON.stringify(profile),slug,input.published===undefined?b.published:input.published?1:0,input.published===true||fields.every(key=>profile[key])?6:b.step,b.id);json(200,{ok:true});return true;
    }
    if(url.pathname==='/api/owner/chat'){
