@@ -11,6 +11,29 @@ type Profile = Record<string, string>;
 type Row = Record<string, any>;
 const hash = (s: string) => createHash('sha256').update(s).digest('hex');
 const fields = ['name','offerings','location','contact','hours','policies'];
+// Onboarding answers are free text, so tidy them before they become public profile fields.
+const URL_PATTERN = /https?:\/\/[^\s]+/gi;
+const tidyUrl = (raw: string) => { try { const u = new URL(raw.replace(/[).,]+$/, '')); return u.origin + (u.pathname === '/' ? '' : u.pathname); } catch { return raw; } };
+const titleFromHost = (raw: string) => { try { const host = new URL(tidyUrl(raw)).hostname.replace(/^www\./, '').split('.')[0]; return host.charAt(0).toUpperCase() + host.slice(1); } catch { return ''; } };
+export async function tidyOnboardingAnswer(field: string, text: string, profile: Record<string, string>) {
+  const urls = text.match(URL_PATTERN) || [];
+  const firstUrl = urls[0] ?? '';
+  if (field !== 'name') return text.replace(URL_PATTERN, tidyUrl);
+  if (firstUrl && !profile.contact) profile.contact = 'Website: ' + tidyUrl(firstUrl);
+  const plain = text.replace(URL_PATTERN, '').replace(/\s+/g, ' ').replace(/[\s:,-]+$/, '').trim();
+  const sentence = urls.length > 0 || plain.length > 60 || /^(i|i'm|we|we're|my|our|this)\b/i.test(plain);
+  if (!sentence) return plain;
+  if (textConfigured()) {
+    try {
+      const result = await complete('Extract the business name from the owner\'s message. Return JSON {"name":"..."} with at most 60 characters. If no name is stated, infer one from the website domain (for example sakraworldhospital.com becomes Sakra World Hospital). Never return a URL or a sentence.', [{ role: 'user', content: text }], 'owner');
+      const name = typeof result?.name === 'string' ? result.name.trim() : '';
+      if (name && name.length <= 80 && !/https?:\/\//i.test(name)) return name;
+    } catch { /* Fall back to the rules below. */ }
+  }
+  const stated = plain.match(/(?:called|named|name is)\s+["'“]?([^,.!?\n"'”]{2,60})/i);
+  if (stated) return stated[1].trim();
+  return (firstUrl ? titleFromHost(firstUrl) : '') || plain.slice(0, 60);
+}
 const prompts = ["First, what's your business called?", 'What do you offer? Share products, services and prices, or attach a menu.', 'Where do you serve customers? Share an address, service area or Google Maps link.', 'What contact details may I share with customers?', 'What are your opening hours? Include days and timezone if relevant.', 'Anything else customers should know—delivery, bookings, returns or custom orders?'];
 export function createPlatform(file: string) {
  mkdirSync(dirname(file), {recursive:true});
@@ -117,7 +140,7 @@ export function createPlatform(file: string) {
    if(url.pathname==='/api/owner/chat'){
     const text=typeof input.text==='string'?input.text.trim():'';if(!text||text.length>8000){json(400,{error:'Write a message of up to 8,000 characters.'});return true;}if(locks.has(b.id)){json(409,{error:'Please wait for the current response.'});return true;}locks.add(b.id);try{
      addMessage('owner_messages',b.id,'owner',text);let reply='';
-     if(b.step<fields.length){const profile=JSON.parse(b.profile);if(!/^(skip|skip for now)$/i.test(text))profile[fields[b.step]]=text;const step=b.step+1;run('UPDATE businesses SET profile=?,step=? WHERE id=?',JSON.stringify(profile),step,b.id);reply=step<fields.length?`Got it—saved to your business profile. ${prompts[step]}`:"Your first business profile is ready. Open Business details to review it, then publish your customer link. You can keep chatting here, or update any detail there. Nothing is shared with customers until you publish.";
+     if(b.step<fields.length){const profile=JSON.parse(b.profile);if(!/^(skip|skip for now)$/i.test(text))profile[fields[b.step]]=await tidyOnboardingAnswer(fields[b.step],text,profile);const step=b.step+1;run('UPDATE businesses SET profile=?,step=? WHERE id=?',JSON.stringify(profile),step,b.id);reply=step<fields.length?`Got it—saved to your business profile. ${prompts[step]}`:"Your first business profile is ready. Open Business details to review it, then publish your customer link. You can keep chatting here, or update any detail there. Nothing is shared with customers until you publish.";
      }else if(agentConfigured('owner')||(process.env.LLM_API_KEY&&process.env.LLM_BASE_URL)){try{const history=all('SELECT sender,text FROM owner_messages WHERE business=? ORDER BY rowid DESC LIMIT 16',b.id).reverse();const result=await model(`You are Dhanavi, a practical assistant for a business owner. Return JSON {"reply":"helpful conversational response","updates":{}}. Updates may contain ONLY owner-supplied corrections to name,offerings,location,contact,hours,policies. Do not invent facts or claim updates are saved: they require owner confirmation. Offer small feasible business improvements, ask about capacity, budget and goals. Do not invent festival dates, weather, current events or claim internet access. Be concise. Profile: ${b.profile}. Confirmed facts: ${JSON.stringify(all('SELECT question,answer FROM facts WHERE business=?',b.id))}`,history.map(m=>({role:m.sender==='owner'?'user':'assistant',content:m.text})),'owner',undefined,b.id,b.id);reply=typeof result.reply==='string'?result.reply:'What would you like to work on?';saveDraft(b,safeChanges(result.updates));}catch{reply="I couldn't prepare a reply right now. Your message is saved. You can still update Business details and answer customer questions; try this conversation again shortly.";}}
      else{const match=text.match(/^(name|offerings|location|contact|hours|policies)\s*:\s*([\s\S]+)$/i);if(match){saveDraft(b,{[match[1].toLowerCase()]:match[2]});reply='I prepared that update for review. Confirm the proposed change below to save it.';}else reply='Your message is saved. You can update Business details or answer questions in Customers. Please try this conversation again later.';}
      addMessage('owner_messages',b.id,'assistant',reply.slice(0,16000));json(201,{ok:true});return true;
