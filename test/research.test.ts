@@ -61,7 +61,7 @@ test('research includes scoped business context, goals and INR catalog prices wi
   const me = await (await fetch(base + '/api/me', { headers: { Cookie: cookie } })).json();
   assert.match(me.messages.at(-1).text, /\*\*Local opportunity\*\*/);
   assert.match(me.messages.at(-1).text, /https:\/\/example.com\/events/);
-  for (const path of ['/vendor/marked.js','/vendor/purify.js','/markdown.js']) {
+  for (const path of ['/vendor/marked.js','/vendor/purify.js','/markdown.js','/voice.js']) {
     const asset = await fetch(base + path); assert.equal(asset.status, 200); assert.match(asset.headers.get('content-type')!, /javascript/);
   }
 });

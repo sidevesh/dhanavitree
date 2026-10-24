@@ -8,9 +8,9 @@ import { createWebApp } from '../src/web.ts';
 import { extractOnboardingAnswer } from '../src/onboarding.ts';
 
 test('onboarding extracts every answer, asks for missing details, separates fields and fails closed', async t => {
-  const keys=['LLM_PROVIDER','LLM_BASE_URL','LLM_API_KEY','LLM_MODEL','OWNER_MODEL','AGENTICORG_API_KEY'];
+  const keys=['DHANAVI_AUTO_PREP','LLM_PROVIDER','LLM_BASE_URL','LLM_API_KEY','LLM_MODEL','OWNER_MODEL','AGENTICORG_API_KEY'];
   const original=Object.fromEntries(keys.map(k=>[k,process.env[k]]));for(const k of keys)delete process.env[k];
-  Object.assign(process.env,{LLM_PROVIDER:'openai',LLM_BASE_URL:'https://onboarding.test/v1',LLM_API_KEY:'fixture',LLM_MODEL:'fixture-model'});
+  Object.assign(process.env,{DHANAVI_AUTO_PREP:'off',LLM_PROVIDER:'openai',LLM_BASE_URL:'https://onboarding.test/v1',LLM_API_KEY:'fixture',LLM_MODEL:'fixture-model'});
   const dir=mkdtempSync(join(tmpdir(),'dhanavi-onboarding-'));const server=createWebApp(join(dir,'data.json'));
   server.listen(0,'127.0.0.1');await once(server,'listening');const a=server.address();assert(a&&typeof a!=='string');const base=`http://127.0.0.1:${a.port}`;
   const realFetch=globalThis.fetch;const calls:any[]=[];let output:any;let failed=false;

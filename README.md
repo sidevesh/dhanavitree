@@ -18,6 +18,8 @@ Open port 3000. Create an account with email and password (at least 8 characters
 3. Share `/b/YOUR-SLUG`. Customers chat without signing up, using a separate guest session. They cannot access other visitors' conversations or your owner workspace.
 4. Unknown questions appear in **Today** and **Customers**. Answer them and optionally save the answer to **Memory**. The reply appears in the waiting customer's browser; saved facts are available for future questions.
 
+**Voice typing:** Setup, Dhanavi, customer chat and owner replies have a Voice button. Each use asks for English, Hindi or Kannada, then uses browser speech recognition to fill the message box. Review or edit the text and press Send; audio is never uploaded to this app. Browser/language support varies, and the browser may use its own online recognition service. Typing remains available. No transcription API keys are needed.
+
 The owner can also reply directly in Customers. This initial version does not pause subsequent AI responses when an owner replies. Guest history is tied to that browser's cookie; clearing cookies or changing devices starts a new conversation. Owner notifications are in-app; email/push notifications are not connected.
 
 ## Render

@@ -9,9 +9,9 @@ import { createWebApp } from '../src/web.ts';
 import { onboardingFixture } from './fixtures/onboarding.ts';
 
 test('setup is durable and isolated from everyday chat, research, uploads and other owners', async t => {
-  const keys=['LLM_PROVIDER','LLM_API_KEY','LLM_BASE_URL','LLM_MODEL','OWNER_MODEL','AGENTICORG_API_KEY'];
+  const keys=['DHANAVI_AUTO_PREP','LLM_PROVIDER','LLM_API_KEY','LLM_BASE_URL','LLM_MODEL','OWNER_MODEL','AGENTICORG_API_KEY'];
   const original=Object.fromEntries(keys.map(k=>[k,process.env[k]]));for(const key of keys)delete process.env[key];
-  Object.assign(process.env,{LLM_PROVIDER:'openai',LLM_API_KEY:'fixture',LLM_BASE_URL:'https://setup.test/v1',LLM_MODEL:'fixture'});
+  Object.assign(process.env,{DHANAVI_AUTO_PREP:'off',LLM_PROVIDER:'openai',LLM_API_KEY:'fixture',LLM_BASE_URL:'https://setup.test/v1',LLM_MODEL:'fixture'});
   const dir=mkdtempSync(join(tmpdir(),'dhanavi-setup-'));let server=createWebApp(join(dir,'data.json'));let base='';
   const start=async()=>{server.listen(0,'127.0.0.1');await once(server,'listening');const a=server.address();assert(a&&typeof a!=='string');base=`http://127.0.0.1:${a.port}`;};
   const stop=async()=>{server.closeAllConnections();await new Promise<void>(r=>server.close(()=>r()));};

@@ -7,7 +7,7 @@ const { JSDOM } = require('jsdom');
 
 function renderer() {
   const dom = new JSDOM('<div id="result"></div>', { url: 'https://shop.test/app', runScripts: 'outside-only' });
-  for (const file of ['node_modules/marked/lib/marked.umd.js', 'node_modules/dompurify/dist/purify.min.js', 'public/markdown.js']) {
+  for (const file of ['node_modules/marked/lib/marked.umd.js', 'node_modules/dompurify/dist/purify.min.js', 'public/markdown.js', 'public/voice.js']) {
     dom.window.eval(readFileSync(new URL('../' + file, import.meta.url), 'utf8'));
   }
   return dom;
