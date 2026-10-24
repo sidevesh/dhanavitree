@@ -56,7 +56,7 @@ test('OpenAI-compatible routing and owner-reviewed knowledge updates',async t=>{
  t.after(async()=>{server.closeAllConnections();provider.closeAllConnections();await Promise.all([new Promise(r=>server.close(r)),new Promise(r=>provider.close(r))]);rmSync(dir,{recursive:true,force:true});for(const key of ['LLM_BASE_URL','LLM_API_KEY','OWNER_MODEL','CUSTOMER_MODEL'])delete process.env[key];});
  let cookie='';const post=(path:string,body:unknown)=>fetch(base+path,{method:'POST',headers:{'Content-Type':'application/json',Cookie:cookie},body:JSON.stringify(body)});
  const signup=await post('/api/auth/signup',{email:'model@example.com',password:'correct-pass',name:'Tester'});cookie=signup.headers.get('set-cookie')!.split(';')[0];
- for(const text of ['Test Shop','Bouquets from ₹650','Bengaluru','Email shop@example.com','Mon–Sat 9–7','Ask for delivery'])await post('/api/owner/chat',{text});
+ for(const text of ['Test Shop','Bouquets from ₹650','Bengaluru','Email shop@example.com','Mon–Sat 9–7','Ask for delivery','Bouquets ₹650 each, lowest ₹600'])await post('/api/owner/chat',{text});
  await post('/api/owner/chat',{text:'Our new hours are Mon–Fri 10–6'});
  const getMe=async()=>await(await fetch(base+'/api/me',{headers:{Cookie:cookie}})).json();let me=await getMe();assert.equal(me.business.profile.hours,'Mon–Sat 9–7');assert.equal(me.drafts[0].changes.hours,'Mon–Fri 10–6');
  await post('/api/drafts/'+me.drafts[0].id+'/approve',{});await post('/api/business',{published:true});me=await getMe();assert.equal(me.business.profile.hours,'Mon–Fri 10–6');
