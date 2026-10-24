@@ -148,7 +148,7 @@ export function createPlatform(file: string) {
        const profile={...JSON.parse(b.profile),...result.updates};
        const step=result.status==='needs_clarification'?b.step:b.step+1;
        run('UPDATE businesses SET profile=?,step=? WHERE id=?',JSON.stringify(profile),step,b.id);
-       if(result.updates.pricing)await catalogFromPricing(b.id,profile.pricing);
+       if(result.status==='answered'&&result.updates.pricing)await catalogFromPricing(b.id,profile.pricing);
        reply=result.status==='needs_clarification'?result.reply:step<onboarding.length?`${result.status==='skip'?'We can come back to that.':'Got it—saved your business details.'} ${prompts[step]}`:"Your business setup is complete. Review Business details before publishing your customer link. Open Dhanavi for questions, research and ideas.";
       }catch{reply=`I couldn't check those details right now. Your message is saved, but your business details haven't changed. Please try again, or choose Skip this detail. ${prompts[b.step]}`;}
      }else if(builtInToolsConfigured()&&GROWTH_QUESTION.test(text)&&await (async()=>{try{reply=await research(text.slice(0,500),researchContext(b));return true;}catch(e:any){console.warn('Chat research failed: '+e.message);return false;}})()){/* Answered with web research. */}

@@ -34,6 +34,8 @@ test('onboarding extracts every answer, asks for missing details, separates fiel
   assert.equal(state.business.step,1);assert.equal(state.business.profile.name,'Mogra Studio');assert.equal(calls.at(-1).field,'name');
   state=await send('What do you mean by advance?',{status:'needs_clarification',updates:{},reply:'An advance is a payment before fulfilling an order. What products and prices do you offer?'});
   assert.equal(state.business.step,1);assert.equal(state.business.profile.pricing,undefined);assert.match(state.setup.messages.at(-1).text,/payment before/);
+  state=await send("Around ₹650, but I'm not sure if that's final yet",{status:'needs_clarification',updates:{pricing:'Around ₹650; not confirmed'},reply:'Is ₹650 the price you want customers to see?'});
+  assert.equal(state.business.step,1);assert.deepEqual(state.commerce.catalog,[],'partial pricing must not create an orderable catalog item');
   state=await send('Bouquets and wedding arrangements',{status:'needs_clarification',updates:{offerings:'Bouquets and wedding arrangements'},reply:'What do your bouquets cost?'});
   assert.equal(state.business.step,1);assert.equal(state.business.profile.offerings,'Bouquets and wedding arrangements');
   state=await send('Bouquets are ₹650 each; weddings are quoted individually. 20% advance.',{status:'answered',updates:{pricing:'Bouquets ₹650 each; weddings quoted individually; 20% advance'}});
@@ -56,7 +58,7 @@ test('onboarding extracts every answer, asks for missing details, separates fiel
   assert.equal(state.business.step,3);assert.deepEqual(state.business.profile,before);
   state=await send('We open Monday to Saturday 9–7. Cancel at least 24 hours ahead.',{status:'answered',updates:{hours:'Monday to Saturday 9–7',policies:'Cancel at least 24 hours ahead'}});
   assert.equal(state.business.step,4);assert.equal(state.business.profile.hours,'Monday to Saturday 9–7');assert.equal(state.business.profile.policies,'Cancel at least 24 hours ahead');assert.equal(state.business.published,false);
-  assert.equal(calls.length,13,'all ordinary messages, including simple answers and failures, reach extraction');
+  assert.equal(calls.length,14,'all ordinary messages, including simple answers and failures, reach extraction');
 });
 
 test('explicit skips work during outages and malformed extraction cannot silently save raw text',async()=>{
