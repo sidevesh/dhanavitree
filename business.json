@@ -1,0 +1,30 @@
+{
+  "id": "demo-restaurant",
+  "name": "Spice Garden",
+  "owner_name": "Gaurav",
+  "vertical": "restaurant_party",
+  "city": "Bengaluru",
+  "advance_pct": 25,
+  "max_auto_discount_pct": 5,
+  "capacity": 60,
+  "blackout_dates": [],
+  "packages": [
+    {
+      "id": "veg-classic",
+      "name": "Veg Classic",
+      "price_per_plate": 450,
+      "floor_per_plate": 400,
+      "min_guests": 15,
+      "includes": "2 starters, 2 mains, dal, rice, breads, 1 dessert, soft drinks"
+    },
+    {
+      "id": "nonveg-classic",
+      "name": "Non-Veg Classic",
+      "price_per_plate": 600,
+      "floor_per_plate": 540,
+      "min_guests": 15,
+      "includes": "2 veg + 2 non-veg starters, 3 mains, biryani, breads, 1 dessert, soft drinks"
+    }
+  ],
+  "faq": "Private section for up to 60 guests. Decoration on request (extra). Outside cake allowed. Advance holds the date; balance payable on the day."
+}

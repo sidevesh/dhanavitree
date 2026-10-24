@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Book a Party</title>
+<style>
+  :root { --bg:#f6f4ef; --card:#fff; --ink:#1d1b16; --muted:#6b665c; --brand:#c2410c; --me:#fde7d9; --line:#e7e2d8; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,"Segoe UI",sans-serif; background:var(--bg); color:var(--ink); }
+  .wrap { max-width:560px; margin:0 auto; min-height:100vh; display:flex; flex-direction:column; }
+  header { padding:16px; border-bottom:1px solid var(--line); background:var(--card); position:sticky; top:0; }
+  header h1 { margin:0; font-size:18px; }
+  header p { margin:2px 0 0; color:var(--muted); font-size:13px; }
+  #log { flex:1; padding:16px; display:flex; flex-direction:column; gap:10px; }
+  .msg { max-width:85%; padding:10px 12px; border-radius:14px; line-height:1.4; font-size:15px; white-space:pre-wrap; word-wrap:break-word; }
+  .user { align-self:flex-end; background:var(--me); border-bottom-right-radius:4px; }
+  .assistant { align-self:flex-start; background:var(--card); border:1px solid var(--line); border-bottom-left-radius:4px; }
+  .msg a { color:var(--brand); font-weight:600; }
+  .typing { color:var(--muted); font-size:13px; }
+  form { display:flex; gap:8px; padding:12px 16px; background:var(--card); border-top:1px solid var(--line); position:sticky; bottom:0; }
+  input { flex:1; padding:12px; border:1px solid var(--line); border-radius:10px; font-size:16px; }
+  button { padding:12px 16px; border:0; border-radius:10px; background:var(--brand); color:#fff; font-size:15px; font-weight:600; }
+  button:disabled { opacity:.5; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; padding:0 16px 8px; }
+  .chip { background:var(--card); border:1px solid var(--line); border-radius:999px; padding:6px 10px; font-size:13px; cursor:pointer; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header><h1 id="title">Party booking</h1><p>Get a quote for birthdays, office parties and get-togethers in 2 minutes.</p></header>
+  <div id="log"></div>
+  <div class="chips" id="chips">
+    <span class="chip">Birthday party for 25 people next Saturday</span>
+    <span class="chip">Diwali team lunch for 40</span>
+    <span class="chip">What packages do you have?</span>
+  </div>
+  <form id="f"><input id="q" placeholder="Type your message (English / Hindi)" autocomplete="off"><button id="send">Send</button></form>
+</div>
+<script>
+const log = document.getElementById("log"), q = document.getElementById("q"), send = document.getElementById("send");
+const params = new URLSearchParams(location.search);
+let leadId = params.get("lead") || localStorage.getItem("lead_id") || null;
+let rendered = 0;
+
+fetch("/api/business").then(r => r.json()).then(b => { document.getElementById("title").textContent = `${b.name} · Party booking`; document.title = `${b.name} · Book a Party`; });
+
+function esc(s) { return s.replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
+function linkify(s) { return esc(s).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>'); }
+
+function render(messages) {
+  for (; rendered < messages.length; rendered++) {
+    const m = messages[rendered];
+    const div = document.createElement("div");
+    div.className = `msg ${m.role}`;
+    div.innerHTML = linkify(m.text);
+    log.appendChild(div);
+  }
+  if (messages.length) document.getElementById("chips").style.display = "none";
+  window.scrollTo(0, document.body.scrollHeight);
+}
+
+async function refresh() {
+  if (!leadId) return;
+  const r = await fetch(`/api/lead/${leadId}`);
+  if (r.ok) render((await r.json()).messages);
+}
+
+async function sendMsg(text) {
+  if (!text.trim()) return;
+  send.disabled = true; q.value = "";
+  const mine = document.createElement("div"); mine.className = "msg user"; mine.textContent = text; log.appendChild(mine);
+  const typing = document.createElement("div"); typing.className = "typing"; typing.textContent = "typing…"; log.appendChild(typing);
+  try {
+    const r = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lead_id: leadId, message: text }) });
+    const data = await r.json();
+    if (data.lead_id) { leadId = data.lead_id; localStorage.setItem("lead_id", leadId); }
+    typing.remove();
+    if (data.messages) { log.innerHTML = ""; rendered = 0; render(data.messages); }
+    else { const d = document.createElement("div"); d.className = "msg assistant"; d.textContent = data.error || "Something went wrong"; log.appendChild(d); }
+  } catch { typing.textContent = "Network problem. Please try again."; }
+  send.disabled = false; q.focus();
+}
+
+document.getElementById("f").addEventListener("submit", e => { e.preventDefault(); sendMsg(q.value); });
+document.querySelectorAll(".chip").forEach(c => c.addEventListener("click", () => sendMsg(c.textContent)));
+refresh();
+setInterval(refresh, 3000); // picks up owner approvals and payment confirmations
+</script>
+</body>
+</html>

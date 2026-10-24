@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Owner Desk</title>
+<style>
+  :root { --bg:#f6f4ef; --card:#fff; --ink:#1d1b16; --muted:#6b665c; --brand:#c2410c; --ok:#15803d; --bad:#b91c1c; --line:#e7e2d8; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,"Segoe UI",sans-serif; background:var(--bg); color:var(--ink); }
+  main { max-width:960px; margin:0 auto; padding:16px; }
+  h1 { font-size:20px; margin:0 0 4px; } h2 { font-size:16px; margin:24px 0 8px; }
+  .muted { color:var(--muted); font-size:13px; }
+  .stats { display:flex; gap:10px; flex-wrap:wrap; margin:12px 0; }
+  .stat { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 14px; min-width:110px; }
+  .stat b { display:block; font-size:22px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px; margin-bottom:10px; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px; }
+  button { padding:9px 14px; border:0; border-radius:8px; font-weight:600; cursor:pointer; color:#fff; background:var(--brand); }
+  .ok { background:var(--ok); } .bad { background:var(--bad); } .ghost { background:#fff; color:var(--ink); border:1px solid var(--line); }
+  input[type=number] { width:90px; padding:8px; border:1px solid var(--line); border-radius:8px; }
+  textarea { width:100%; min-height:60px; padding:8px; border:1px solid var(--line); border-radius:8px; font:inherit; }
+  .rec { background:#f0f7ff; border:1px solid #cfe3ff; border-radius:8px; padding:8px 10px; margin-top:8px; font-size:14px; white-space:pre-wrap; }
+  table { width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--line); border-radius:12px; overflow:hidden; font-size:14px; }
+  th, td { padding:8px 10px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; }
+  .pill { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; background:#eee; }
+  .events { font-family:ui-monospace,Menlo,monospace; font-size:12px; max-height:320px; overflow:auto; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:10px; }
+  .warn { background:#fff3cd; border-radius:8px; padding:6px 10px; font-size:13px; display:inline-block; margin-right:6px; }
+</style>
+</head>
+<body>
+<main>
+  <h1 id="title">Owner Desk</h1>
+  <div class="muted">Approve discounts, watch every enquiry, follow up on quiet leads. Auto-refreshes every 5s.</div>
+  <div id="integrations" style="margin-top:8px"></div>
+  <div class="stats" id="stats"></div>
+  <h2>Waiting for your approval</h2><div id="pending"><p class="muted">Nothing pending.</p></div>
+  <h2>All enquiries</h2><div id="leads"></div>
+  <h2>Activity log (proof trail) <a class="muted" id="export" href="#">· export JSON</a></h2><div class="events" id="events"></div>
+</main>
+<script>
+const key = new URLSearchParams(location.search).get("key") || prompt("Owner key");
+const H = { "Content-Type": "application/json", "x-owner-key": key };
+document.getElementById("export").href = `/api/owner/export?key=${encodeURIComponent(key)}`;
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const inr = n => "₹" + Number(n || 0).toLocaleString("en-IN");
+let drafts = {};
+
+function recText(dd) {
+  if (!dd) return "AgenticOrg deal desk is reviewing…";
+  if (!dd.ok) return `AgenticOrg recommendation unavailable (${dd.error || dd.source}).`;
+  const o = dd.output;
+  if (!o || typeof o !== "object") return `AgenticOrg deal desk: ${o ?? "no output"}`;
+  return `AgenticOrg deal desk recommends: ${o.recommendation}${o.price_per_plate ? " at ₹" + o.price_per_plate + "/plate" : ""}\n` +
+    `Why: ${o.reason || "—"}\nDraft reply: ${o.message || "—"}` +
+    (dd.hitl_trigger ? `\nAgenticOrg flagged this for your approval (${dd.hitl_trigger}).` : "");
+}
+
+async function load() {
+  const r = await fetch("/api/owner/state", { headers: H });
+  if (!r.ok) { document.body.innerHTML = "<main><h1>Wrong owner key</h1></main>"; return; }
+  const s = await r.json();
+  document.getElementById("title").textContent = `${s.business.name} · Owner Desk`;
+  document.getElementById("integrations").innerHTML =
+    (s.integrations.pine_labs ? "" : '<span class="warn">Pine Labs: TEST MODE</span>') +
+    (s.integrations.agenticorg ? "" : '<span class="warn">AgenticOrg: not configured</span>');
+  document.getElementById("stats").innerHTML = `
+    <div class="stat"><b>${s.stats.users}</b><span class="muted">customers signed up</span></div>
+    <div class="stat"><b>${s.stats.quotes}</b><span class="muted">quotes</span></div>
+    <div class="stat"><b>${s.stats.paid}</b><span class="muted">advances paid</span></div>`;
+
+  const leadsById = Object.fromEntries(s.leads.map(l => [l.id, l]));
+  const pending = s.quotes.filter(q => q.status === "PENDING_APPROVAL");
+  document.getElementById("pending").innerHTML = pending.length ? pending.map(q => {
+    const l = leadsById[q.lead_id] || { fields: {} };
+    return `<div class="card">
+      <b>${esc(l.fields.name || "Customer")}</b> · ${esc(l.fields.occasion || "party")} · ${esc(l.fields.date || "date tbc")} · ${q.guests} guests · ${esc(q.package_name)}
+      <div class="muted">Asked <b>${inr(q.requested_per_plate)}/plate</b> (list ${inr(q.list_per_plate)}, your minimum ${inr(q.floor_per_plate)})${q.below_floor ? ' · <b style="color:#b91c1c">below your minimum</b>' : ""}</div>
+      <div class="rec">${esc(recText(q.deal_desk))}</div>
+      <div class="row">
+        <button class="ok" onclick="decide('${q.id}','approve')">Approve ${inr(q.requested_per_plate)}</button>
+        <input type="number" id="c_${q.id}" value="${q.deal_desk?.output?.price_per_plate || Math.max(q.floor_per_plate, q.requested_per_plate)}">
+        <button onclick="decide('${q.id}','counter')">Counter</button>
+        <button class="bad" onclick="decide('${q.id}','reject')">Reject</button>
+      </div></div>`;
+  }).join("") : '<p class="muted">Nothing pending.</p>';
+
+  document.getElementById("leads").innerHTML = `<table><tr><th>Customer</th><th>Details</th><th>Stage</th><th></th></tr>${
+    s.leads.map(l => `<tr>
+      <td>${esc(l.fields.name || "—")}<div class="muted">${esc(l.fields.phone || "")}</div></td>
+      <td>${esc(l.fields.occasion || "")} ${esc(l.fields.date || "")} ${l.fields.guests ? l.fields.guests + " guests" : ""}<div class="muted">${esc(l.messages.at(-1)?.text?.slice(0, 90) || "")}</div>
+        ${drafts[l.id] !== undefined ? `<textarea id="d_${l.id}">${esc(drafts[l.id])}</textarea><div class="row"><button class="ok" onclick="sendDraft('${l.id}')">Send</button></div>` : ""}</td>
+      <td><span class="pill">${esc(l.stage)}</span></td>
+      <td>${["QUOTED","LINK_SENT","QUALIFIED","NEGOTIATING"].includes(l.stage) ? `<button class="ghost" onclick="followup('${l.id}')">Draft follow-up</button>` : ""}</td>
+    </tr>`).join("")}</table>`;
+
+  document.getElementById("events").innerHTML = s.events.map(e =>
+    `<div>${esc(e.ts.replace("T"," ").slice(0,19))} · <b>${esc(e.actor)}</b> · ${esc(e.type)} ${e.lead_id ? "· " + esc(e.lead_id) : ""}</div>`).join("");
+}
+
+async function decide(id, action) {
+  const per_plate = action === "counter" ? Number(document.getElementById(`c_${id}`).value) : undefined;
+  const r = await fetch("/api/owner/decide", { method: "POST", headers: H, body: JSON.stringify({ quote_id: id, action, per_plate }) });
+  if (!r.ok) alert((await r.json()).error);
+  load();
+}
+async function followup(leadId) {
+  drafts[leadId] = "Drafting with AgenticOrg…"; load();
+  const run = await (await fetch("/api/owner/followup", { method: "POST", headers: H, body: JSON.stringify({ lead_id: leadId }) })).json();
+  const o = run.output;
+  drafts[leadId] = run.ok ? (typeof o === "string" ? o : (o?.message || o?.draft || o?.reply || JSON.stringify(o))) : "";
+  load();
+}
+async function sendDraft(leadId) {
+  const text = document.getElementById(`d_${leadId}`).value;
+  await fetch("/api/owner/send-followup", { method: "POST", headers: H, body: JSON.stringify({ lead_id: leadId, text }) });
+  delete drafts[leadId]; load();
+}
+load(); setInterval(() => { if (!document.activeElement || !["TEXTAREA","INPUT"].includes(document.activeElement.tagName)) load(); }, 5000);
+</script>
+</body>
+</html>
